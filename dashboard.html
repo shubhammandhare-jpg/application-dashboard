@@ -190,7 +190,7 @@
 
   <div class="filterbar" id="filterbar">
     <div class="filter-field" style="grid-column: span 2;">
-      <label>Created week range</label>
+      <label>Created date range</label>
       <div class="range-display"><span class="num" id="createdRangeLabel"></span></div>
       <div class="dual-slider" id="createdSliderWrap">
         <div class="track"></div><div class="track-fill" id="createdFill"></div>
@@ -199,13 +199,18 @@
       </div>
     </div>
     <div class="filter-field" style="grid-column: span 2;">
-      <label>Approved week range</label>
+      <label>Approved date range</label>
       <div class="range-display"><span class="num" id="approvedRangeLabel"></span></div>
       <div class="dual-slider" id="approvedSliderWrap">
         <div class="track"></div><div class="track-fill" id="approvedFill"></div>
         <input type="range" id="approvedMin">
         <input type="range" id="approvedMax">
       </div>
+    </div>
+
+    <div class="filter-field">
+      <label>Month</label>
+      <select id="monthSelect"></select>
     </div>
 
     <div class="filter-field" style="position:relative;">
@@ -256,6 +261,7 @@
     <button class="tab-btn" data-dim="TL_name">TL-wise</button>
     <button class="tab-btn" data-dim="platform">Platform-wise</button>
     <button class="tab-btn" data-dim="Approve_Type">Approve type-wise</button>
+    <button class="tab-btn" data-dim="month">Month-wise</button>
   </div>
 
   <div class="table-card">
@@ -271,18 +277,18 @@
     </div>
   </div>
 
-  <footer>Data aggregated at weekly granularity for performance &middot; built as a static, client-side dashboard</footer>
+  <footer>Data aggregated daily, per exact date &middot; built as a static, client-side dashboard</footer>
 </div>
 
 <script src="dashboard_data.js"></script>
 <script>
 (function(){
   const RAW = window.DASHBOARD_DATA;
-  const { weeksCreated, weeksApproved, groups, segments, tls, platforms, approveTypes, stages, rows, generatedAt } = RAW;
+  const { daysCreated, daysApproved, months, groups, segments, tls, platforms, approveTypes, stages, rows, generatedAt } = RAW;
   document.getElementById('dataAsOf').textContent = generatedAt || 'unknown';
 
-  // row = [createdWeekIdx, approvedWeekIdx, groupIdx, segmentIdx, tlIdx, platformIdx, approveTypeIdx, stageIdx, n]
-  const R = { CW:0, AW:1, G:2, SEG:3, TL:4, PLAT:5, AT:6, ST:7, N:8 };
+  // row = [createdDayIdx, approvedDayIdx, monthIdx, groupIdx, segmentIdx, tlIdx, platformIdx, approveTypeIdx, stageIdx, n]
+  const R = { CW:0, AW:1, MO:2, G:3, SEG:4, TL:5, PLAT:6, AT:7, ST:8, N:9 };
 
   const STAGE_ORDER_PREF = ['Disbursed','Backout','Rejected','In Process','Incomplete Lead','Dont consider'];
   const stageOrder = STAGE_ORDER_PREF.filter(s => stages.indexOf(s) !== -1)
@@ -298,18 +304,18 @@
     'Dont consider': {fg:'#8A93A1', bg:'#F1F2F4'}
   };
   function stageColor(name){ return STAGE_COLORS[name] || {fg:'#5B6472', bg:'#EEF0F2'}; }
-  const DIM_LABELS = { group_name:'Group', segment:'Segment', TL_name:'TL Name', platform:'Platform', Approve_Type:'Approve Type' };
+  const DIM_LABELS = { group_name:'Group', segment:'Segment', TL_name:'TL Name', platform:'Platform', Approve_Type:'Approve Type', month:'Month' };
 
-  const approvedNoneIdx = weeksApproved.indexOf('(None)');
-  // Build a slider axis over real (dated) approved weeks only, skipping the "(None)" slot.
-  const approvedAxis = weeksApproved.map((w,i) => i).filter(i => i !== approvedNoneIdx);
+  const approvedNoneIdx = daysApproved.indexOf('(None)');
+  // Build a slider axis over real (dated) approved days only, skipping the "(None)" slot.
+  const approvedAxis = daysApproved.map((w,i) => i).filter(i => i !== approvedNoneIdx);
 
   /* ---------------- state ---------------- */
   const state = {
-    createdMin: 0, createdMax: weeksCreated.length - 1,
+    createdMin: 0, createdMax: daysCreated.length - 1,
     approvedMin: approvedAxis[0], approvedMax: approvedAxis[approvedAxis.length-1],
     groups: new Set(), // empty = all
-    segment: 'All', tl: 'All', approveType: 'All', platform: 'All',
+    segment: 'All', tl: 'All', approveType: 'All', platform: 'All', month: 'All',
     activeDim: 'group_name',
     tableSort: {col:'total', dir:'desc'},
     tableSearch: ''
@@ -326,6 +332,18 @@
   fillSelect(document.getElementById('tlSelect'), tls);
   fillSelect(document.getElementById('approveTypeSelect'), approveTypes);
   fillSelect(document.getElementById('platformSelect'), platforms);
+
+  const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  function monthLabel(ym){
+    if (ym === '(None)') return ym;
+    const parts = ym.split('-');
+    const mIdx = parseInt(parts[1], 10) - 1;
+    return (MONTH_NAMES[mIdx] || ym) + ' ' + parts[0];
+  }
+  const monthSel = document.getElementById('monthSelect');
+  const realMonths = months.filter(m => m !== '(None)');
+  monthSel.innerHTML = '<option value="All">All</option>' + realMonths.map(m => `<option value="${m}">${monthLabel(m)}</option>`).join('');
+  monthSel.addEventListener('change', e => { state.month = e.target.value; refresh(); });
 
   document.getElementById('segmentSelect').addEventListener('change', e => { state.segment = e.target.value; refresh(); });
   document.getElementById('tlSelect').addEventListener('change', e => { state.tl = e.target.value; refresh(); });
@@ -351,16 +369,16 @@
   }
   setupDualSlider(
     document.getElementById('createdMin'), document.getElementById('createdMax'),
-    document.getElementById('createdFill'), weeksCreated.length,
+    document.getElementById('createdFill'), daysCreated.length,
     (a,b) => { state.createdMin = a; state.createdMax = b;
-      document.getElementById('createdRangeLabel').textContent = weeksCreated[a] + '  \u2192  ' + weeksCreated[b];
+      document.getElementById('createdRangeLabel').textContent = daysCreated[a] + '  \u2192  ' + daysCreated[b];
       refresh(); }
   );
   setupDualSlider(
     document.getElementById('approvedMin'), document.getElementById('approvedMax'),
     document.getElementById('approvedFill'), approvedAxis.length,
     (a,b) => { state.approvedMin = approvedAxis[a]; state.approvedMax = approvedAxis[b];
-      document.getElementById('approvedRangeLabel').textContent = weeksApproved[approvedAxis[a]] + '  \u2192  ' + weeksApproved[approvedAxis[b]];
+      document.getElementById('approvedRangeLabel').textContent = daysApproved[approvedAxis[a]] + '  \u2192  ' + daysApproved[approvedAxis[b]];
       refresh(); }
   );
 
@@ -435,8 +453,8 @@
     const overallStage = new Array(stages.length).fill(0);
     let total = 0;
 
-    const dimAgg = { group_name: new Map(), segment: new Map(), TL_name: new Map(), platform: new Map(), Approve_Type: new Map() };
-    const dimKeyToIdxList = { group_name: groups, segment: segments, TL_name: tls, platform: platforms, Approve_Type: approveTypes };
+    const dimAgg = { group_name: new Map(), segment: new Map(), TL_name: new Map(), platform: new Map(), Approve_Type: new Map(), month: new Map() };
+    const dimKeyToIdxList = { group_name: groups, segment: segments, TL_name: tls, platform: platforms, Approve_Type: approveTypes, month: months };
 
     for (let i = 0; i < rows.length; i++) {
       const r = rows[i];
@@ -449,6 +467,7 @@
       if (state.tl !== 'All' && tls[r[R.TL]] !== state.tl) continue;
       if (state.approveType !== 'All' && approveTypes[r[R.AT]] !== state.approveType) continue;
       if (state.platform !== 'All' && platforms[r[R.PLAT]] !== state.platform) continue;
+      if (state.month !== 'All' && months[r[R.MO]] !== state.month) continue;
       if (state.groups.size > 0 && !state.groups.has(r[R.G])) continue;
 
       const n = r[R.N];
@@ -460,6 +479,7 @@
       accumulate(dimAgg.TL_name, r[R.TL], r[R.ST], n);
       accumulate(dimAgg.platform, r[R.PLAT], r[R.ST], n);
       accumulate(dimAgg.Approve_Type, r[R.AT], r[R.ST], n);
+      accumulate(dimAgg.month, r[R.MO], r[R.ST], n);
     }
 
     lastFiltered = { total, overallStage, dimAgg, dimKeyToIdxList };
@@ -526,8 +546,9 @@
     // rows
     let entries = [];
     map.forEach((val, key) => {
-      const name = idxList[key];
+      let name = idxList[key];
       if (name === '(None)') return;
+      if (dim === 'month') name = monthLabel(name);
       entries.push({ name, total: val.total, stages: val.stages });
     });
 
@@ -578,8 +599,8 @@
   }
 
   /* ---------------- init ---------------- */
-  document.getElementById('createdRangeLabel').textContent = weeksCreated[0] + '  \u2192  ' + weeksCreated[weeksCreated.length-1];
-  document.getElementById('approvedRangeLabel').textContent = weeksApproved[approvedAxis[0]] + '  \u2192  ' + weeksApproved[approvedAxis[approvedAxis.length-1]];
+  document.getElementById('createdRangeLabel').textContent = daysCreated[0] + '  \u2192  ' + daysCreated[daysCreated.length-1];
+  document.getElementById('approvedRangeLabel').textContent = daysApproved[approvedAxis[0]] + '  \u2192  ' + daysApproved[approvedAxis[approvedAxis.length-1]];
   updateGroupToggleLabel();
   computeAndRender();
 })();
