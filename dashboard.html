@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Application Funnel Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F5F6F8;
+    --surface:#FFFFFF;
+    --border:#E3E6EA;
+    --text:#10141C;
+    --text-soft:#5B6472;
+    --text-faint:#8A93A1;
+    --accent:#2A4CDB;
+    --accent-soft:#EAEEFD;
+    --disbursed:#0F8B5F;
+    --disbursed-bg:#E6F5EE;
+    --backout:#C4432B;
+    --backout-bg:#FBEAE6;
+    --rejected:#9E2A2B;
+    --rejected-bg:#F8E6E6;
+    --inprocess:#B5750B;
+    --inprocess-bg:#FBF1DF;
+    --incomplete:#6B7280;
+    --incomplete-bg:#EEF0F2;
+    --dontconsider:#8A93A1;
+    --dontconsider-bg:#F1F2F4;
+    --radius:10px;
+    --shadow:0 1px 2px rgba(16,20,28,0.04), 0 1px 12px rgba(16,20,28,0.03);
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--text);
+    font-family:'Inter',sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .num{font-family:'IBM Plex Mono',monospace; font-variant-numeric: tabular-nums;}
+  .wrap{max-width:1440px;margin:0 auto;padding:28px 32px 60px;}
+
+  header.top{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:22px;flex-wrap:wrap;gap:8px;}
+  header.top h1{
+    font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:26px;letter-spacing:-0.01em;margin:0;
+  }
+  header.top .subtitle{color:var(--text-soft);font-size:13.5px;}
+  #liveCount{color:var(--accent);font-weight:600;}
+
+  /* ---------- filter bar ---------- */
+  .filterbar{
+    background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+    padding:18px 20px;margin-bottom:22px;box-shadow:var(--shadow);
+    display:grid;grid-template-columns:repeat(auto-fit, minmax(200px,1fr));gap:18px 22px;
+    position:relative;
+  }
+  .filter-field{display:flex;flex-direction:column;gap:6px;min-width:0;}
+  .filter-field label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-faint);}
+  select{
+    appearance:none;background:var(--bg);border:1px solid var(--border);border-radius:7px;
+    padding:8px 30px 8px 10px;font-size:13.5px;color:var(--text);font-family:inherit;cursor:pointer;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%238A93A1'/%3E%3C/svg%3E");
+    background-repeat:no-repeat;background-position:right 12px center;
+  }
+  select:focus, .group-toggle:focus{outline:2px solid var(--accent);outline-offset:1px;}
+
+  .range-display{font-size:12.5px;color:var(--text);font-weight:600;}
+  .range-display .num{color:var(--accent);}
+  .dual-slider{position:relative;height:28px;}
+  .dual-slider input[type=range]{
+    position:absolute;width:100%;top:9px;height:4px;background:none;pointer-events:none;
+    -webkit-appearance:none;appearance:none;margin:0;
+  }
+  .dual-slider input[type=range]::-webkit-slider-thumb{
+    pointer-events:auto;-webkit-appearance:none;appearance:none;
+    width:15px;height:15px;border-radius:50%;background:var(--accent);border:2px solid #fff;
+    box-shadow:0 0 0 1px var(--accent);cursor:pointer;margin-top:-1px;
+  }
+  .dual-slider input[type=range]::-moz-range-thumb{
+    width:15px;height:15px;border-radius:50%;background:var(--accent);border:2px solid #fff;
+    box-shadow:0 0 0 1px var(--accent);cursor:pointer;pointer-events:auto;
+  }
+  .dual-slider input[type=range]::-webkit-slider-runnable-track{background:transparent;border:none;}
+  .dual-slider input[type=range]::-moz-range-track{background:transparent;border:none;}
+  .dual-slider .track{position:absolute;top:12px;left:0;right:0;height:4px;background:var(--border);border-radius:2px;}
+  .dual-slider .track-fill{position:absolute;top:12px;height:4px;background:var(--accent);border-radius:2px;}
+
+  /* group multi-select */
+  .group-toggle{
+    background:var(--bg);border:1px solid var(--border);border-radius:7px;padding:8px 10px;
+    font-size:13.5px;text-align:left;cursor:pointer;display:flex;justify-content:space-between;align-items:center;
+    font-family:inherit;color:var(--text);
+  }
+  .group-toggle .count-badge{background:var(--accent);color:#fff;font-size:10.5px;font-weight:700;
+    border-radius:20px;padding:1px 7px;font-family:'IBM Plex Mono',monospace;}
+  .group-panel{
+    position:absolute;top:calc(100% + 6px);left:0;width:320px;max-height:360px;
+    background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 30px rgba(16,20,28,0.14);
+    display:none;flex-direction:column;z-index:40;overflow:hidden;
+  }
+  .group-panel.open{display:flex;}
+  .group-panel .search{padding:10px;border-bottom:1px solid var(--border);}
+  .group-panel .search input{width:100%;padding:7px 9px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit;}
+  .group-panel .actions{display:flex;gap:8px;padding:8px 10px;border-bottom:1px solid var(--border);}
+  .group-panel .actions button{
+    border:none;background:var(--accent-soft);color:var(--accent);font-size:11.5px;font-weight:600;
+    padding:5px 10px;border-radius:6px;cursor:pointer;font-family:inherit;
+  }
+  .group-list{overflow-y:auto;padding:4px 0;}
+  .group-item{display:flex;align-items:center;gap:8px;padding:6px 12px;font-size:13px;cursor:pointer;}
+  .group-item:hover{background:var(--bg);}
+  .group-item input{margin:0;accent-color:var(--accent);}
+  .group-item span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+
+  /* ---------- KPI cards ---------- */
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin-bottom:22px;}
+  .kpi{
+    background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px;
+    box-shadow:var(--shadow);
+  }
+  .kpi .label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--text-faint);margin-bottom:8px;}
+  .kpi .value{font-family:'Space Grotesk',sans-serif;font-size:26px;font-weight:700;line-height:1;}
+  .kpi .sub{font-size:12px;color:var(--text-soft);margin-top:6px;}
+  .kpi.total .value{color:var(--text);}
+
+  /* ---------- funnel bar ---------- */
+  .funnel-card{
+    background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+    padding:20px 22px 18px;margin-bottom:22px;box-shadow:var(--shadow);
+  }
+  .funnel-card h2{font-family:'Space Grotesk',sans-serif;font-size:15px;margin:0 0 14px;font-weight:600;}
+  .funnel-bar{display:flex;height:38px;border-radius:8px;overflow:hidden;background:var(--bg);}
+  .funnel-seg{height:100%;transition:width .5s cubic-bezier(.4,0,.2,1);min-width:0;position:relative;}
+  .funnel-legend{display:flex;flex-wrap:wrap;gap:16px;margin-top:14px;}
+  .legend-item{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--text-soft);}
+  .legend-dot{width:9px;height:9px;border-radius:2px;flex-shrink:0;}
+  .legend-item .num{color:var(--text);font-weight:600;}
+
+  /* ---------- tabs & tables ---------- */
+  .tabs{display:flex;gap:4px;margin-bottom:14px;border-bottom:1px solid var(--border);}
+  .tab-btn{
+    background:none;border:none;padding:10px 16px;font-size:13.5px;font-weight:600;color:var(--text-faint);
+    cursor:pointer;font-family:inherit;border-bottom:2px solid transparent;margin-bottom:-1px;
+  }
+  .tab-btn.active{color:var(--accent);border-bottom-color:var(--accent);}
+  .table-card{
+    background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+    box-shadow:var(--shadow);overflow:hidden;
+  }
+  .table-toolbar{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid var(--border);gap:10px;}
+  .table-toolbar input{
+    border:1px solid var(--border);border-radius:7px;padding:7px 10px;font-size:13px;font-family:inherit;width:220px;
+  }
+  .table-toolbar .hint{font-size:12px;color:var(--text-faint);}
+  .table-scroll{overflow-x:auto;max-height:520px;overflow-y:auto;}
+  table{width:100%;border-collapse:collapse;font-size:13px;}
+  thead th{
+    position:sticky;top:0;background:var(--surface);text-align:right;padding:9px 12px;font-size:11px;
+    text-transform:uppercase;letter-spacing:.04em;color:var(--text-faint);font-weight:700;border-bottom:1px solid var(--border);
+    white-space:nowrap;cursor:pointer;user-select:none;
+  }
+  thead th:first-child{text-align:left;}
+  thead th.sorted{color:var(--accent);}
+  tbody td{padding:8px 12px;text-align:right;border-bottom:1px solid var(--border);white-space:nowrap;}
+  tbody td:first-child{text-align:left;font-weight:600;color:var(--text);}
+  tbody tr:hover{background:var(--bg);}
+  .pct-cell{color:var(--text-soft);font-size:12px;}
+  .bar-cell{position:relative;}
+  .bar-cell .mini-bar{position:absolute;left:0;bottom:2px;height:3px;border-radius:2px;opacity:.55;}
+
+  footer{margin-top:26px;color:var(--text-faint);font-size:11.5px;text-align:center;}
+
+  @media (max-width:720px){
+    .wrap{padding:18px;}
+    .group-panel{width:260px;}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <div>
+      <h1>Application Funnel Dashboard</h1>
+      <div class="subtitle">Created &rarr; Approved &rarr; Disbursed, filtered live &middot; <span id="liveCount">—</span> applications matching current filters &middot; data as of <span id="dataAsOf">—</span></div>
+    </div>
+  </header>
+
+  <div class="filterbar" id="filterbar">
+    <div class="filter-field" style="grid-column: span 2;">
+      <label>Created week range</label>
+      <div class="range-display"><span class="num" id="createdRangeLabel"></span></div>
+      <div class="dual-slider" id="createdSliderWrap">
+        <div class="track"></div><div class="track-fill" id="createdFill"></div>
+        <input type="range" id="createdMin">
+        <input type="range" id="createdMax">
+      </div>
+    </div>
+    <div class="filter-field" style="grid-column: span 2;">
+      <label>Approved week range</label>
+      <div class="range-display"><span class="num" id="approvedRangeLabel"></span></div>
+      <div class="dual-slider" id="approvedSliderWrap">
+        <div class="track"></div><div class="track-fill" id="approvedFill"></div>
+        <input type="range" id="approvedMin">
+        <input type="range" id="approvedMax">
+      </div>
+    </div>
+
+    <div class="filter-field" style="position:relative;">
+      <label>Group <span style="text-transform:none;font-weight:500;">(multi-select)</span></label>
+      <button class="group-toggle" id="groupToggle">
+        <span id="groupToggleLabel">All groups</span>
+        <span class="count-badge" id="groupCountBadge" style="display:none;">0</span>
+      </button>
+      <div class="group-panel" id="groupPanel">
+        <div class="search"><input type="text" id="groupSearch" placeholder="Search groups…"></div>
+        <div class="actions">
+          <button id="groupSelectAll">Select all</button>
+          <button id="groupClear">Clear</button>
+        </div>
+        <div class="group-list" id="groupList"></div>
+      </div>
+    </div>
+
+    <div class="filter-field">
+      <label>Segment</label>
+      <select id="segmentSelect"></select>
+    </div>
+    <div class="filter-field">
+      <label>TL Name</label>
+      <select id="tlSelect"></select>
+    </div>
+    <div class="filter-field">
+      <label>Approve type</label>
+      <select id="approveTypeSelect"></select>
+    </div>
+    <div class="filter-field">
+      <label>Platform</label>
+      <select id="platformSelect"></select>
+    </div>
+  </div>
+
+  <div class="kpis" id="kpiRow"></div>
+
+  <div class="funnel-card">
+    <h2>Final stage breakdown</h2>
+    <div class="funnel-bar" id="funnelBar"></div>
+    <div class="funnel-legend" id="funnelLegend"></div>
+  </div>
+
+  <div class="tabs" id="tabs">
+    <button class="tab-btn active" data-dim="group_name">Group-wise</button>
+    <button class="tab-btn" data-dim="segment">Segment-wise</button>
+    <button class="tab-btn" data-dim="TL_name">TL-wise</button>
+    <button class="tab-btn" data-dim="platform">Platform-wise</button>
+    <button class="tab-btn" data-dim="Approve_Type">Approve type-wise</button>
+  </div>
+
+  <div class="table-card">
+    <div class="table-toolbar">
+      <input type="text" id="tableSearch" placeholder="Search this table…">
+      <span class="hint" id="tableHint"></span>
+    </div>
+    <div class="table-scroll">
+      <table>
+        <thead><tr id="tableHeadRow"></tr></thead>
+        <tbody id="tableBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <footer>Data aggregated at weekly granularity for performance &middot; built as a static, client-side dashboard</footer>
+</div>
+
+<script src="dashboard_data.js"></script>
+<script>
+(function(){
+  const RAW = window.DASHBOARD_DATA;
+  const { weeksCreated, weeksApproved, groups, segments, tls, platforms, approveTypes, stages, rows, generatedAt } = RAW;
+  document.getElementById('dataAsOf').textContent = generatedAt || 'unknown';
+
+  // row = [createdWeekIdx, approvedWeekIdx, groupIdx, segmentIdx, tlIdx, platformIdx, approveTypeIdx, stageIdx, n]
+  const R = { CW:0, AW:1, G:2, SEG:3, TL:4, PLAT:5, AT:6, ST:7, N:8 };
+
+  const STAGE_ORDER_PREF = ['Disbursed','Backout','Rejected','In Process','Incomplete Lead','Dont consider'];
+  const stageOrder = STAGE_ORDER_PREF.filter(s => stages.indexOf(s) !== -1)
+    .concat(stages.filter(s => STAGE_ORDER_PREF.indexOf(s) === -1));
+  const stageIdxOrder = stageOrder.map(s => stages.indexOf(s));
+
+  const STAGE_COLORS = {
+    'Disbursed':   {fg:'#0F8B5F', bg:'#E6F5EE'},
+    'Backout':     {fg:'#C4432B', bg:'#FBEAE6'},
+    'Rejected':    {fg:'#9E2A2B', bg:'#F8E6E6'},
+    'In Process':  {fg:'#B5750B', bg:'#FBF1DF'},
+    'Incomplete Lead': {fg:'#6B7280', bg:'#EEF0F2'},
+    'Dont consider': {fg:'#8A93A1', bg:'#F1F2F4'}
+  };
+  function stageColor(name){ return STAGE_COLORS[name] || {fg:'#5B6472', bg:'#EEF0F2'}; }
+  const DIM_LABELS = { group_name:'Group', segment:'Segment', TL_name:'TL Name', platform:'Platform', Approve_Type:'Approve Type' };
+
+  const approvedNoneIdx = weeksApproved.indexOf('(None)');
+  // Build a slider axis over real (dated) approved weeks only, skipping the "(None)" slot.
+  const approvedAxis = weeksApproved.map((w,i) => i).filter(i => i !== approvedNoneIdx);
+
+  /* ---------------- state ---------------- */
+  const state = {
+    createdMin: 0, createdMax: weeksCreated.length - 1,
+    approvedMin: approvedAxis[0], approvedMax: approvedAxis[approvedAxis.length-1],
+    groups: new Set(), // empty = all
+    segment: 'All', tl: 'All', approveType: 'All', platform: 'All',
+    activeDim: 'group_name',
+    tableSort: {col:'total', dir:'desc'},
+    tableSearch: ''
+  };
+  const approvedFullDefault = () => state.approvedMin === approvedAxis[0] && state.approvedMax === approvedAxis[approvedAxis.length-1];
+  let lastFiltered = null;
+
+  /* ---------------- build filter controls ---------------- */
+  function fillSelect(sel, list){
+    const opts = ['All'].concat(list.filter(v => v !== '(None)'));
+    sel.innerHTML = opts.map(o => `<option value="${o.replace(/"/g,'&quot;')}">${o}</option>`).join('');
+  }
+  fillSelect(document.getElementById('segmentSelect'), segments);
+  fillSelect(document.getElementById('tlSelect'), tls);
+  fillSelect(document.getElementById('approveTypeSelect'), approveTypes);
+  fillSelect(document.getElementById('platformSelect'), platforms);
+
+  document.getElementById('segmentSelect').addEventListener('change', e => { state.segment = e.target.value; refresh(); });
+  document.getElementById('tlSelect').addEventListener('change', e => { state.tl = e.target.value; refresh(); });
+  document.getElementById('approveTypeSelect').addEventListener('change', e => { state.approveType = e.target.value; refresh(); });
+  document.getElementById('platformSelect').addEventListener('change', e => { state.platform = e.target.value; refresh(); });
+
+  // dual sliders
+  function setupDualSlider(minEl, maxEl, fillEl, len, onChange){
+    minEl.min = 0; minEl.max = len - 1; minEl.value = 0; minEl.step = 1;
+    maxEl.min = 0; maxEl.max = len - 1; maxEl.value = len - 1; maxEl.step = 1;
+    function update(){
+      let a = parseInt(minEl.value), b = parseInt(maxEl.value);
+      if (a > b) { [a,b] = [b,a]; }
+      const pctA = len > 1 ? (a/(len-1))*100 : 0;
+      const pctB = len > 1 ? (b/(len-1))*100 : 100;
+      fillEl.style.left = pctA + '%';
+      fillEl.style.width = (pctB - pctA) + '%';
+      onChange(a,b);
+    }
+    minEl.addEventListener('input', update);
+    maxEl.addEventListener('input', update);
+    update();
+  }
+  setupDualSlider(
+    document.getElementById('createdMin'), document.getElementById('createdMax'),
+    document.getElementById('createdFill'), weeksCreated.length,
+    (a,b) => { state.createdMin = a; state.createdMax = b;
+      document.getElementById('createdRangeLabel').textContent = weeksCreated[a] + '  \u2192  ' + weeksCreated[b];
+      refresh(); }
+  );
+  setupDualSlider(
+    document.getElementById('approvedMin'), document.getElementById('approvedMax'),
+    document.getElementById('approvedFill'), approvedAxis.length,
+    (a,b) => { state.approvedMin = approvedAxis[a]; state.approvedMax = approvedAxis[b];
+      document.getElementById('approvedRangeLabel').textContent = weeksApproved[approvedAxis[a]] + '  \u2192  ' + weeksApproved[approvedAxis[b]];
+      refresh(); }
+  );
+
+  // group multi-select panel
+  const groupPanel = document.getElementById('groupPanel');
+  const groupList = document.getElementById('groupList');
+  const realGroups = groups.filter(g => g !== '(None)');
+  function renderGroupList(filterText){
+    const f = (filterText||'').toLowerCase();
+    groupList.innerHTML = '';
+    const frag = document.createDocumentFragment();
+    realGroups.forEach(g => {
+      if (f && g.toLowerCase().indexOf(f) === -1) return;
+      const idx = groups.indexOf(g);
+      const item = document.createElement('label');
+      item.className = 'group-item';
+      item.innerHTML = `<input type="checkbox" data-idx="${idx}" ${state.groups.has(idx) ? 'checked' : ''}><span>${g}</span>`;
+      frag.appendChild(item);
+    });
+    groupList.appendChild(frag);
+  }
+  renderGroupList('');
+  groupList.addEventListener('change', e => {
+    if (e.target.tagName === 'INPUT') {
+      const idx = parseInt(e.target.dataset.idx);
+      if (e.target.checked) state.groups.add(idx); else state.groups.delete(idx);
+      updateGroupToggleLabel();
+      refresh();
+    }
+  });
+  document.getElementById('groupSearch').addEventListener('input', e => renderGroupList(e.target.value));
+  document.getElementById('groupSelectAll').addEventListener('click', () => {
+    realGroups.forEach(g => state.groups.add(groups.indexOf(g)));
+    renderGroupList(document.getElementById('groupSearch').value);
+    updateGroupToggleLabel(); refresh();
+  });
+  document.getElementById('groupClear').addEventListener('click', () => {
+    state.groups.clear();
+    renderGroupList(document.getElementById('groupSearch').value);
+    updateGroupToggleLabel(); refresh();
+  });
+  document.getElementById('groupToggle').addEventListener('click', () => groupPanel.classList.toggle('open'));
+  document.addEventListener('click', e => {
+    if (!e.target.closest('#groupToggle') && !e.target.closest('#groupPanel')) groupPanel.classList.remove('open');
+  });
+  function updateGroupToggleLabel(){
+    const n = state.groups.size;
+    document.getElementById('groupToggleLabel').textContent = n === 0 ? 'All groups' : (n + ' group' + (n>1?'s':'') + ' selected');
+    const badge = document.getElementById('groupCountBadge');
+    if (n > 0) { badge.style.display='inline-block'; badge.textContent = n; } else { badge.style.display='none'; }
+  }
+
+  // tabs
+  document.getElementById('tabs').addEventListener('click', e => {
+    const btn = e.target.closest('.tab-btn');
+    if (!btn) return;
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    state.activeDim = btn.dataset.dim;
+    state.tableSort = {col:'total', dir:'desc'};
+    renderTable(lastFiltered);
+  });
+  document.getElementById('tableSearch').addEventListener('input', e => {
+    state.tableSearch = e.target.value.toLowerCase();
+    renderTable(lastFiltered);
+  });
+
+  /* ---------------- filtering + aggregation ---------------- */
+
+  function computeAndRender(){
+    const approvedIsFull = approvedFullDefault();
+    const overallStage = new Array(stages.length).fill(0);
+    let total = 0;
+
+    const dimAgg = { group_name: new Map(), segment: new Map(), TL_name: new Map(), platform: new Map(), Approve_Type: new Map() };
+    const dimKeyToIdxList = { group_name: groups, segment: segments, TL_name: tls, platform: platforms, Approve_Type: approveTypes };
+
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      if (r[R.CW] < state.createdMin || r[R.CW] > state.createdMax) continue;
+      if (!approvedIsFull) {
+        if (r[R.AW] === approvedNoneIdx) continue;
+        if (r[R.AW] < state.approvedMin || r[R.AW] > state.approvedMax) continue;
+      }
+      if (state.segment !== 'All' && segments[r[R.SEG]] !== state.segment) continue;
+      if (state.tl !== 'All' && tls[r[R.TL]] !== state.tl) continue;
+      if (state.approveType !== 'All' && approveTypes[r[R.AT]] !== state.approveType) continue;
+      if (state.platform !== 'All' && platforms[r[R.PLAT]] !== state.platform) continue;
+      if (state.groups.size > 0 && !state.groups.has(r[R.G])) continue;
+
+      const n = r[R.N];
+      total += n;
+      overallStage[r[R.ST]] += n;
+
+      accumulate(dimAgg.group_name, r[R.G], r[R.ST], n);
+      accumulate(dimAgg.segment, r[R.SEG], r[R.ST], n);
+      accumulate(dimAgg.TL_name, r[R.TL], r[R.ST], n);
+      accumulate(dimAgg.platform, r[R.PLAT], r[R.ST], n);
+      accumulate(dimAgg.Approve_Type, r[R.AT], r[R.ST], n);
+    }
+
+    lastFiltered = { total, overallStage, dimAgg, dimKeyToIdxList };
+    renderKPIs(total, overallStage);
+    renderFunnel(total, overallStage);
+    renderTable(lastFiltered);
+    document.getElementById('liveCount').textContent = total.toLocaleString();
+  }
+
+  function accumulate(map, key, stageIdx, n){
+    let entry = map.get(key);
+    if (!entry) { entry = { total:0, stages:new Array(stages.length).fill(0) }; map.set(key, entry); }
+    entry.total += n;
+    entry.stages[stageIdx] += n;
+  }
+
+  function refresh(){ computeAndRender(); }
+
+  /* ---------------- render: KPIs ---------------- */
+  function renderKPIs(total, overallStage){
+    const row = document.getElementById('kpiRow');
+    let html = `<div class="kpi total"><div class="label">Total created</div><div class="value num">${total.toLocaleString()}</div><div class="sub">matching current filters</div></div>`;
+    stageIdxOrder.forEach(si => {
+      const name = stages[si];
+      const c = overallStage[si] || 0;
+      const pct = total > 0 ? (c/total*100) : 0;
+      const col = stageColor(name);
+      html += `<div class="kpi"><div class="label">${name}</div><div class="value num" style="color:${col.fg}">${c.toLocaleString()}</div><div class="sub">${pct.toFixed(1)}% of created</div></div>`;
+    });
+    row.innerHTML = html;
+  }
+
+  /* ---------------- render: funnel bar ---------------- */
+  function renderFunnel(total, overallStage){
+    const bar = document.getElementById('funnelBar');
+    const legend = document.getElementById('funnelLegend');
+    let barHtml = '', legendHtml = '';
+    stageIdxOrder.forEach(si => {
+      const name = stages[si];
+      const c = overallStage[si] || 0;
+      const pct = total > 0 ? (c/total*100) : 0;
+      const col = stageColor(name);
+      barHtml += `<div class="funnel-seg" style="width:${pct}%;background:${col.fg};" title="${name}: ${c.toLocaleString()} (${pct.toFixed(1)}%)"></div>`;
+      legendHtml += `<div class="legend-item"><span class="legend-dot" style="background:${col.fg}"></span>${name} &nbsp;<span class="num">${c.toLocaleString()}</span> (${pct.toFixed(1)}%)</div>`;
+    });
+    bar.innerHTML = barHtml;
+    legend.innerHTML = legendHtml;
+  }
+
+  /* ---------------- render: breakdown table ---------------- */
+
+  function renderTable(filteredData){
+    if (!filteredData) return;
+    const dim = state.activeDim;
+    const map = filteredData.dimAgg[dim];
+    const idxList = filteredData.dimKeyToIdxList[dim];
+
+    // header
+    const headRow = document.getElementById('tableHeadRow');
+    let headHtml = `<th data-col="name">${DIM_LABELS[dim]}</th><th data-col="total">Created</th>`;
+    stageIdxOrder.forEach(si => { headHtml += `<th data-col="s${si}">${stages[si]}</th><th data-col="s${si}_pct">${stages[si]} %</th>`; });
+    headRow.innerHTML = headHtml;
+
+    // rows
+    let entries = [];
+    map.forEach((val, key) => {
+      const name = idxList[key];
+      if (name === '(None)') return;
+      entries.push({ name, total: val.total, stages: val.stages });
+    });
+
+    if (state.tableSearch) {
+      entries = entries.filter(e => e.name.toLowerCase().indexOf(state.tableSearch) !== -1);
+    }
+
+    const sortCol = state.tableSort.col;
+    entries.sort((a,b) => {
+      let va, vb;
+      if (sortCol === 'name') { va = a.name; vb = b.name; }
+      else if (sortCol === 'total') { va = a.total; vb = b.total; }
+      else if (sortCol.endsWith('_pct')) {
+        const si = parseInt(sortCol.slice(1, -4));
+        va = a.total ? a.stages[si]/a.total : 0; vb = b.total ? b.stages[si]/b.total : 0;
+      } else {
+        const si = parseInt(sortCol.slice(1));
+        va = a.stages[si]; vb = b.stages[si];
+      }
+      if (typeof va === 'string') return state.tableSort.dir === 'asc' ? va.localeCompare(vb) : vb.localeCompare(va);
+      return state.tableSort.dir === 'asc' ? va - vb : vb - va;
+    });
+
+    headRow.querySelectorAll('th').forEach(th => {
+      th.classList.toggle('sorted', th.dataset.col === sortCol);
+      th.onclick = () => {
+        if (state.tableSort.col === th.dataset.col) state.tableSort.dir = state.tableSort.dir === 'asc' ? 'desc' : 'asc';
+        else state.tableSort = { col: th.dataset.col, dir: 'desc' };
+        renderTable(lastFiltered);
+      };
+    });
+
+    const body = document.getElementById('tableBody');
+    const maxTotal = entries.length ? Math.max(...entries.map(e=>e.total)) : 1;
+    let bodyHtml = '';
+    entries.forEach(e => {
+      bodyHtml += `<tr><td>${e.name}</td><td class="bar-cell num">${e.total.toLocaleString()}<span class="mini-bar" style="width:${(e.total/maxTotal*100).toFixed(1)}%;background:var(--accent);"></span></td>`;
+      stageIdxOrder.forEach(si => {
+        const c = e.stages[si] || 0;
+        const pct = e.total > 0 ? (c/e.total*100) : 0;
+        const col = stageColor(stages[si]);
+        bodyHtml += `<td class="num" style="color:${col.fg}">${c.toLocaleString()}</td><td class="pct-cell num">${pct.toFixed(1)}%</td>`;
+      });
+      bodyHtml += '</tr>';
+    });
+    body.innerHTML = bodyHtml || '<tr><td colspan="20" style="text-align:center;color:var(--text-faint);padding:24px;">No rows match this filter/search.</td></tr>';
+    document.getElementById('tableHint').textContent = entries.length + ' rows';
+  }
+
+  /* ---------------- init ---------------- */
+  document.getElementById('createdRangeLabel').textContent = weeksCreated[0] + '  \u2192  ' + weeksCreated[weeksCreated.length-1];
+  document.getElementById('approvedRangeLabel').textContent = weeksApproved[approvedAxis[0]] + '  \u2192  ' + weeksApproved[approvedAxis[approvedAxis.length-1]];
+  updateGroupToggleLabel();
+  computeAndRender();
+})();
+</script>
+</body>
+</html>
