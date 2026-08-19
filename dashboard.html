@@ -189,22 +189,35 @@
   </header>
 
   <div class="filterbar" id="filterbar">
-    <div class="filter-field" style="grid-column: span 2;">
-      <label>Created date range</label>
-      <div class="range-display"><span class="num" id="createdRangeLabel"></span></div>
-      <div class="dual-slider" id="createdSliderWrap">
-        <div class="track"></div><div class="track-fill" id="createdFill"></div>
-        <input type="range" id="createdMin">
-        <input type="range" id="createdMax">
+    <div class="filter-field" style="position:relative;">
+      <label>Created date <span style="text-transform:none;font-weight:500;">(multi-select)</span></label>
+      <button class="group-toggle" id="createdDateToggle">
+        <span id="createdDateToggleLabel">All dates</span>
+        <span class="count-badge" id="createdDateCountBadge" style="display:none;">0</span>
+      </button>
+      <div class="group-panel" id="createdDatePanel">
+        <div class="search"><input type="text" id="createdDateSearch" placeholder="Search dates…"></div>
+        <div class="actions">
+          <button id="createdDateSelectAll">Select all</button>
+          <button id="createdDateClear">Clear</button>
+        </div>
+        <div class="group-list" id="createdDateList"></div>
       </div>
     </div>
-    <div class="filter-field" style="grid-column: span 2;">
-      <label>Approved date range</label>
-      <div class="range-display"><span class="num" id="approvedRangeLabel"></span></div>
-      <div class="dual-slider" id="approvedSliderWrap">
-        <div class="track"></div><div class="track-fill" id="approvedFill"></div>
-        <input type="range" id="approvedMin">
-        <input type="range" id="approvedMax">
+
+    <div class="filter-field" style="position:relative;">
+      <label>Approved date <span style="text-transform:none;font-weight:500;">(multi-select)</span></label>
+      <button class="group-toggle" id="approvedDateToggle">
+        <span id="approvedDateToggleLabel">All dates</span>
+        <span class="count-badge" id="approvedDateCountBadge" style="display:none;">0</span>
+      </button>
+      <div class="group-panel" id="approvedDatePanel">
+        <div class="search"><input type="text" id="approvedDateSearch" placeholder="Search dates…"></div>
+        <div class="actions">
+          <button id="approvedDateSelectAll">Select all</button>
+          <button id="approvedDateClear">Clear</button>
+        </div>
+        <div class="group-list" id="approvedDateList"></div>
       </div>
     </div>
 
@@ -262,6 +275,7 @@
     <button class="tab-btn" data-dim="platform">Platform-wise</button>
     <button class="tab-btn" data-dim="Approve_Type">Approve type-wise</button>
     <button class="tab-btn" data-dim="month">Month-wise</button>
+    <button class="tab-btn" data-dim="institute_name">Institute-wise</button>
   </div>
 
   <div class="table-card">
@@ -284,11 +298,11 @@
 <script>
 (function(){
   const RAW = window.DASHBOARD_DATA;
-  const { daysCreated, daysApproved, months, groups, segments, tls, platforms, approveTypes, stages, rows, generatedAt } = RAW;
+  const { daysCreated, daysApproved, months, groups, segments, tls, platforms, approveTypes, institutes, stages, rows, generatedAt } = RAW;
   document.getElementById('dataAsOf').textContent = generatedAt || 'unknown';
 
-  // row = [createdDayIdx, approvedDayIdx, monthIdx, groupIdx, segmentIdx, tlIdx, platformIdx, approveTypeIdx, stageIdx, n]
-  const R = { CW:0, AW:1, MO:2, G:3, SEG:4, TL:5, PLAT:6, AT:7, ST:8, N:9 };
+  // row = [createdDayIdx, approvedDayIdx, monthIdx, groupIdx, segmentIdx, tlIdx, platformIdx, approveTypeIdx, instituteIdx, stageIdx, n]
+  const R = { CW:0, AW:1, MO:2, G:3, SEG:4, TL:5, PLAT:6, AT:7, INST:8, ST:9, N:10 };
 
   const STAGE_ORDER_PREF = ['Disbursed','Backout','Rejected','In Process','Incomplete Lead','Dont consider'];
   const stageOrder = STAGE_ORDER_PREF.filter(s => stages.indexOf(s) !== -1)
@@ -304,23 +318,18 @@
     'Dont consider': {fg:'#8A93A1', bg:'#F1F2F4'}
   };
   function stageColor(name){ return STAGE_COLORS[name] || {fg:'#5B6472', bg:'#EEF0F2'}; }
-  const DIM_LABELS = { group_name:'Group', segment:'Segment', TL_name:'TL Name', platform:'Platform', Approve_Type:'Approve Type', month:'Month' };
-
-  const approvedNoneIdx = daysApproved.indexOf('(None)');
-  // Build a slider axis over real (dated) approved days only, skipping the "(None)" slot.
-  const approvedAxis = daysApproved.map((w,i) => i).filter(i => i !== approvedNoneIdx);
+  const DIM_LABELS = { group_name:'Group', segment:'Segment', TL_name:'TL Name', platform:'Platform', Approve_Type:'Approve Type', month:'Month', institute_name:'Institute' };
 
   /* ---------------- state ---------------- */
   const state = {
-    createdMin: 0, createdMax: daysCreated.length - 1,
-    approvedMin: approvedAxis[0], approvedMax: approvedAxis[approvedAxis.length-1],
+    createdDates: new Set(), // empty = all
+    approvedDates: new Set(), // empty = all
     groups: new Set(), // empty = all
     segment: 'All', tl: 'All', approveType: 'All', platform: 'All', month: 'All',
     activeDim: 'group_name',
     tableSort: {col:'total', dir:'desc'},
     tableSearch: ''
   };
-  const approvedFullDefault = () => state.approvedMin === approvedAxis[0] && state.approvedMax === approvedAxis[approvedAxis.length-1];
   let lastFiltered = null;
 
   /* ---------------- build filter controls ---------------- */
@@ -350,86 +359,63 @@
   document.getElementById('approveTypeSelect').addEventListener('change', e => { state.approveType = e.target.value; refresh(); });
   document.getElementById('platformSelect').addEventListener('change', e => { state.platform = e.target.value; refresh(); });
 
-  // dual sliders
-  function setupDualSlider(minEl, maxEl, fillEl, len, onChange){
-    minEl.min = 0; minEl.max = len - 1; minEl.value = 0; minEl.step = 1;
-    maxEl.min = 0; maxEl.max = len - 1; maxEl.value = len - 1; maxEl.step = 1;
-    function update(){
-      let a = parseInt(minEl.value), b = parseInt(maxEl.value);
-      if (a > b) { [a,b] = [b,a]; }
-      const pctA = len > 1 ? (a/(len-1))*100 : 0;
-      const pctB = len > 1 ? (b/(len-1))*100 : 100;
-      fillEl.style.left = pctA + '%';
-      fillEl.style.width = (pctB - pctA) + '%';
-      onChange(a,b);
-    }
-    minEl.addEventListener('input', update);
-    maxEl.addEventListener('input', update);
-    update();
-  }
-  setupDualSlider(
-    document.getElementById('createdMin'), document.getElementById('createdMax'),
-    document.getElementById('createdFill'), daysCreated.length,
-    (a,b) => { state.createdMin = a; state.createdMax = b;
-      document.getElementById('createdRangeLabel').textContent = daysCreated[a] + '  \u2192  ' + daysCreated[b];
-      refresh(); }
-  );
-  setupDualSlider(
-    document.getElementById('approvedMin'), document.getElementById('approvedMax'),
-    document.getElementById('approvedFill'), approvedAxis.length,
-    (a,b) => { state.approvedMin = approvedAxis[a]; state.approvedMax = approvedAxis[b];
-      document.getElementById('approvedRangeLabel').textContent = daysApproved[approvedAxis[a]] + '  \u2192  ' + daysApproved[approvedAxis[b]];
-      refresh(); }
-  );
+  /* ---------------- generic multi-select panel (Group / Created date / Approved date) ---------------- */
+  function setupMultiSelect(opts){
+    const { fullList, selectedSet, idPrefix, singularLabel, onChange } = opts;
+    const toggle = document.getElementById(idPrefix + 'Toggle');
+    const toggleLabel = document.getElementById(idPrefix + 'ToggleLabel');
+    const badge = document.getElementById(idPrefix + 'CountBadge');
+    const panel = document.getElementById(idPrefix + 'Panel');
+    const list = document.getElementById(idPrefix + 'List');
+    const searchInput = document.getElementById(idPrefix + 'Search');
+    const realItems = fullList.filter(v => v !== '(None)');
 
-  // group multi-select panel
-  const groupPanel = document.getElementById('groupPanel');
-  const groupList = document.getElementById('groupList');
-  const realGroups = groups.filter(g => g !== '(None)');
-  function renderGroupList(filterText){
-    const f = (filterText||'').toLowerCase();
-    groupList.innerHTML = '';
-    const frag = document.createDocumentFragment();
-    realGroups.forEach(g => {
-      if (f && g.toLowerCase().indexOf(f) === -1) return;
-      const idx = groups.indexOf(g);
-      const item = document.createElement('label');
-      item.className = 'group-item';
-      item.innerHTML = `<input type="checkbox" data-idx="${idx}" ${state.groups.has(idx) ? 'checked' : ''}><span>${g}</span>`;
-      frag.appendChild(item);
-    });
-    groupList.appendChild(frag);
-  }
-  renderGroupList('');
-  groupList.addEventListener('change', e => {
-    if (e.target.tagName === 'INPUT') {
-      const idx = parseInt(e.target.dataset.idx);
-      if (e.target.checked) state.groups.add(idx); else state.groups.delete(idx);
-      updateGroupToggleLabel();
-      refresh();
+    function renderList(filterText){
+      const f = (filterText||'').toLowerCase();
+      list.innerHTML = '';
+      const frag = document.createDocumentFragment();
+      realItems.forEach(v => {
+        if (f && v.toLowerCase().indexOf(f) === -1) return;
+        const idx = fullList.indexOf(v);
+        const item = document.createElement('label');
+        item.className = 'group-item';
+        item.innerHTML = `<input type="checkbox" data-idx="${idx}" ${selectedSet.has(idx) ? 'checked' : ''}><span>${v}</span>`;
+        frag.appendChild(item);
+      });
+      list.appendChild(frag);
     }
-  });
-  document.getElementById('groupSearch').addEventListener('input', e => renderGroupList(e.target.value));
-  document.getElementById('groupSelectAll').addEventListener('click', () => {
-    realGroups.forEach(g => state.groups.add(groups.indexOf(g)));
-    renderGroupList(document.getElementById('groupSearch').value);
-    updateGroupToggleLabel(); refresh();
-  });
-  document.getElementById('groupClear').addEventListener('click', () => {
-    state.groups.clear();
-    renderGroupList(document.getElementById('groupSearch').value);
-    updateGroupToggleLabel(); refresh();
-  });
-  document.getElementById('groupToggle').addEventListener('click', () => groupPanel.classList.toggle('open'));
-  document.addEventListener('click', e => {
-    if (!e.target.closest('#groupToggle') && !e.target.closest('#groupPanel')) groupPanel.classList.remove('open');
-  });
-  function updateGroupToggleLabel(){
-    const n = state.groups.size;
-    document.getElementById('groupToggleLabel').textContent = n === 0 ? 'All groups' : (n + ' group' + (n>1?'s':'') + ' selected');
-    const badge = document.getElementById('groupCountBadge');
-    if (n > 0) { badge.style.display='inline-block'; badge.textContent = n; } else { badge.style.display='none'; }
+    function updateLabel(){
+      const n = selectedSet.size;
+      toggleLabel.textContent = n === 0 ? ('All ' + singularLabel + 's') : (n + ' ' + singularLabel + (n>1?'s':'') + ' selected');
+      if (n > 0) { badge.style.display='inline-block'; badge.textContent = n; } else { badge.style.display='none'; }
+    }
+    renderList('');
+    updateLabel();
+    list.addEventListener('change', e => {
+      if (e.target.tagName === 'INPUT') {
+        const idx = parseInt(e.target.dataset.idx);
+        if (e.target.checked) selectedSet.add(idx); else selectedSet.delete(idx);
+        updateLabel(); onChange();
+      }
+    });
+    searchInput.addEventListener('input', e => renderList(e.target.value));
+    document.getElementById(idPrefix + 'SelectAll').addEventListener('click', () => {
+      realItems.forEach(v => selectedSet.add(fullList.indexOf(v)));
+      renderList(searchInput.value); updateLabel(); onChange();
+    });
+    document.getElementById(idPrefix + 'Clear').addEventListener('click', () => {
+      selectedSet.clear();
+      renderList(searchInput.value); updateLabel(); onChange();
+    });
+    toggle.addEventListener('click', () => panel.classList.toggle('open'));
+    document.addEventListener('click', e => {
+      if (!e.target.closest('#' + idPrefix + 'Toggle') && !e.target.closest('#' + idPrefix + 'Panel')) panel.classList.remove('open');
+    });
   }
+
+  setupMultiSelect({ fullList: groups, selectedSet: state.groups, idPrefix: 'group', singularLabel: 'group', onChange: refresh });
+  setupMultiSelect({ fullList: daysCreated, selectedSet: state.createdDates, idPrefix: 'createdDate', singularLabel: 'date', onChange: refresh });
+  setupMultiSelect({ fullList: daysApproved, selectedSet: state.approvedDates, idPrefix: 'approvedDate', singularLabel: 'date', onChange: refresh });
 
   // tabs
   document.getElementById('tabs').addEventListener('click', e => {
@@ -449,20 +435,16 @@
   /* ---------------- filtering + aggregation ---------------- */
 
   function computeAndRender(){
-    const approvedIsFull = approvedFullDefault();
     const overallStage = new Array(stages.length).fill(0);
     let total = 0;
 
-    const dimAgg = { group_name: new Map(), segment: new Map(), TL_name: new Map(), platform: new Map(), Approve_Type: new Map(), month: new Map() };
-    const dimKeyToIdxList = { group_name: groups, segment: segments, TL_name: tls, platform: platforms, Approve_Type: approveTypes, month: months };
+    const dimAgg = { group_name: new Map(), segment: new Map(), TL_name: new Map(), platform: new Map(), Approve_Type: new Map(), month: new Map(), institute_name: new Map() };
+    const dimKeyToIdxList = { group_name: groups, segment: segments, TL_name: tls, platform: platforms, Approve_Type: approveTypes, month: months, institute_name: institutes };
 
     for (let i = 0; i < rows.length; i++) {
       const r = rows[i];
-      if (r[R.CW] < state.createdMin || r[R.CW] > state.createdMax) continue;
-      if (!approvedIsFull) {
-        if (r[R.AW] === approvedNoneIdx) continue;
-        if (r[R.AW] < state.approvedMin || r[R.AW] > state.approvedMax) continue;
-      }
+      if (state.createdDates.size > 0 && !state.createdDates.has(r[R.CW])) continue;
+      if (state.approvedDates.size > 0 && !state.approvedDates.has(r[R.AW])) continue;
       if (state.segment !== 'All' && segments[r[R.SEG]] !== state.segment) continue;
       if (state.tl !== 'All' && tls[r[R.TL]] !== state.tl) continue;
       if (state.approveType !== 'All' && approveTypes[r[R.AT]] !== state.approveType) continue;
@@ -480,6 +462,7 @@
       accumulate(dimAgg.platform, r[R.PLAT], r[R.ST], n);
       accumulate(dimAgg.Approve_Type, r[R.AT], r[R.ST], n);
       accumulate(dimAgg.month, r[R.MO], r[R.ST], n);
+      accumulate(dimAgg.institute_name, r[R.INST], r[R.ST], n);
     }
 
     lastFiltered = { total, overallStage, dimAgg, dimKeyToIdxList };
@@ -599,9 +582,6 @@
   }
 
   /* ---------------- init ---------------- */
-  document.getElementById('createdRangeLabel').textContent = daysCreated[0] + '  \u2192  ' + daysCreated[daysCreated.length-1];
-  document.getElementById('approvedRangeLabel').textContent = daysApproved[approvedAxis[0]] + '  \u2192  ' + daysApproved[approvedAxis[approvedAxis.length-1]];
-  updateGroupToggleLabel();
   computeAndRender();
 })();
 </script>
