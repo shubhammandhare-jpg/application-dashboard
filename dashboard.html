@@ -131,12 +131,13 @@
     padding:20px 22px 18px;margin-bottom:22px;box-shadow:var(--shadow);
   }
   .funnel-card h2{font-family:'Space Grotesk',sans-serif;font-size:15px;margin:0 0 14px;font-weight:600;}
-  .funnel-bar{display:flex;height:38px;border-radius:8px;overflow:hidden;background:var(--bg);}
-  .funnel-seg{height:100%;transition:width .5s cubic-bezier(.4,0,.2,1);min-width:0;position:relative;}
-  .funnel-legend{display:flex;flex-wrap:wrap;gap:16px;margin-top:14px;}
-  .legend-item{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--text-soft);}
-  .legend-dot{width:9px;height:9px;border-radius:2px;flex-shrink:0;}
-  .legend-item .num{color:var(--text);font-weight:600;}
+  .funnel-bar{display:flex;flex-direction:column;gap:9px;}
+  .funnel-row{display:grid;grid-template-columns:130px 1fr 150px;align-items:center;gap:12px;}
+  .funnel-row-label{font-size:12.5px;font-weight:600;color:var(--text-soft);}
+  .funnel-row-track{height:14px;background:var(--bg);border-radius:7px;overflow:hidden;}
+  .funnel-row-fill{height:100%;border-radius:7px;transition:width .5s cubic-bezier(.4,0,.2,1);min-width:2px;}
+  .funnel-row-value{font-size:13px;font-weight:600;text-align:right;}
+  .funnel-row-pct{font-weight:500;color:var(--text-faint);font-size:12px;}
 
   /* ---------- tabs & tables ---------- */
   .tabs{display:flex;gap:4px;margin-bottom:14px;border-bottom:1px solid var(--border);}
@@ -261,9 +262,8 @@
   <div class="kpis" id="kpiRow"></div>
 
   <div class="funnel-card">
-    <h2>Final stage breakdown</h2>
+    <h2>Application funnel</h2>
     <div class="funnel-bar" id="funnelBar"></div>
-    <div class="funnel-legend" id="funnelLegend"></div>
   </div>
 
   <div class="tabs" id="tabs">
@@ -299,23 +299,22 @@
   const { daysCreated, daysApproved, months, groups, segments, tls, platforms, approveTypes, institutes, stages, rows, generatedAt } = RAW;
   document.getElementById('dataAsOf').textContent = generatedAt || 'unknown';
 
-  // row = [createdDayIdx, approvedDayIdx, monthIdx, groupIdx, segmentIdx, tlIdx, platformIdx, approveTypeIdx, instituteIdx, stageIdx, n]
-  const R = { CW:0, AW:1, MO:2, G:3, SEG:4, TL:5, PLAT:6, AT:7, INST:8, ST:9, N:10 };
+  // row = [createdDayIdx, approvedDayIdx, monthIdx, groupIdx, segmentIdx, tlIdx, platformIdx, approveTypeIdx, instituteIdx, stageIdx, n, approvedN, submittedN]
+  const R = { CW:0, AW:1, MO:2, G:3, SEG:4, TL:5, PLAT:6, AT:7, INST:8, ST:9, N:10, APN:11, SBN:12 };
 
-  const STAGE_ORDER_PREF = ['Disbursed','Backout','Rejected','In Process','Incomplete Lead','Dont consider'];
-  const stageOrder = STAGE_ORDER_PREF.filter(s => stages.indexOf(s) !== -1)
-    .concat(stages.filter(s => STAGE_ORDER_PREF.indexOf(s) === -1));
-  const stageIdxOrder = stageOrder.map(s => stages.indexOf(s));
+  // The 8-stage funnel. Independent milestone counts (not a strict partition) —
+  // percentages are all "% of Total Created" and won't add up to 100%.
+  const METRICS = [
+    { key:'created',   label:'Total Created',   fg:'#10141C', bg:'#EEF0F2', isBase:true, get:(e)=>e.total },
+    { key:'submitted', label:'Submitted',       fg:'#2A4CDB', bg:'#EAEEFD', get:(e)=>e.submitted },
+    { key:'incomplete',label:'Incomplete Lead', fg:'#6B7280', bg:'#EEF0F2', get:(e)=>e.stages['Incomplete Lead']||0 },
+    { key:'approved',  label:'Approved',        fg:'#0B6E99', bg:'#E5F1F7', get:(e)=>e.approved },
+    { key:'rejected',  label:'Rejected',        fg:'#9E2A2B', bg:'#F8E6E6', get:(e)=>e.stages['Rejected']||0 },
+    { key:'backout',   label:'Backout',         fg:'#C4432B', bg:'#FBEAE6', get:(e)=>e.stages['Backout']||0 },
+    { key:'inprocess', label:'In Process',      fg:'#B5750B', bg:'#FBF1DF', get:(e)=>e.stages['In Process']||0 },
+    { key:'disbursed', label:'Disbursed',       fg:'#0F8B5F', bg:'#E6F5EE', get:(e)=>e.stages['Disbursed']||0 },
+  ];
 
-  const STAGE_COLORS = {
-    'Disbursed':   {fg:'#0F8B5F', bg:'#E6F5EE'},
-    'Backout':     {fg:'#C4432B', bg:'#FBEAE6'},
-    'Rejected':    {fg:'#9E2A2B', bg:'#F8E6E6'},
-    'In Process':  {fg:'#B5750B', bg:'#FBF1DF'},
-    'Incomplete Lead': {fg:'#6B7280', bg:'#EEF0F2'},
-    'Dont consider': {fg:'#8A93A1', bg:'#F1F2F4'}
-  };
-  function stageColor(name){ return STAGE_COLORS[name] || {fg:'#5B6472', bg:'#EEF0F2'}; }
   const DIM_LABELS = { group_name:'Group', segment:'Segment', TL_name:'TL Name', platform:'Platform', Approve_Type:'Approve Type', month:'Month', institute_name:'Institute' };
 
   /* ---------------- state ---------------- */
@@ -325,7 +324,7 @@
     groups: new Set(), // empty = all
     segment: 'All', tl: 'All', approveType: 'All', platform: 'All', month: 'All',
     activeDim: 'group_name',
-    tableSort: {col:'total', dir:'desc'},
+    tableSort: {col:'created', dir:'desc'},
     tableSearch: ''
   };
   let lastFiltered = null;
@@ -422,7 +421,7 @@
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     state.activeDim = btn.dataset.dim;
-    state.tableSort = {col:'total', dir:'desc'};
+    state.tableSort = {col:'created', dir:'desc'};
     renderTable(lastFiltered);
   });
   document.getElementById('tableSearch').addEventListener('input', e => {
@@ -433,8 +432,7 @@
   /* ---------------- filtering + aggregation ---------------- */
 
   function computeAndRender(){
-    const overallStage = new Array(stages.length).fill(0);
-    let total = 0;
+    const overall = { total:0, submitted:0, approved:0, stages:{} };
 
     const dimAgg = { group_name: new Map(), segment: new Map(), TL_name: new Map(), platform: new Map(), Approve_Type: new Map(), month: new Map(), institute_name: new Map() };
     const dimKeyToIdxList = { group_name: groups, segment: segments, TL_name: tls, platform: platforms, Approve_Type: approveTypes, month: months, institute_name: institutes };
@@ -450,64 +448,68 @@
       if (state.month !== 'All' && months[r[R.MO]] !== state.month) continue;
       if (state.groups.size > 0 && !state.groups.has(r[R.G])) continue;
 
-      const n = r[R.N];
-      total += n;
-      overallStage[r[R.ST]] += n;
+      const n = r[R.N], apN = r[R.APN], sbN = r[R.SBN], stageName = stages[r[R.ST]];
+      overall.total += n;
+      overall.submitted += sbN;
+      overall.approved += apN;
+      overall.stages[stageName] = (overall.stages[stageName]||0) + n;
 
-      accumulate(dimAgg.group_name, r[R.G], r[R.ST], n);
-      accumulate(dimAgg.segment, r[R.SEG], r[R.ST], n);
-      accumulate(dimAgg.TL_name, r[R.TL], r[R.ST], n);
-      accumulate(dimAgg.platform, r[R.PLAT], r[R.ST], n);
-      accumulate(dimAgg.Approve_Type, r[R.AT], r[R.ST], n);
-      accumulate(dimAgg.month, r[R.MO], r[R.ST], n);
-      accumulate(dimAgg.institute_name, r[R.INST], r[R.ST], n);
+      accumulate(dimAgg.group_name, r[R.G], stageName, n, apN, sbN);
+      accumulate(dimAgg.segment, r[R.SEG], stageName, n, apN, sbN);
+      accumulate(dimAgg.TL_name, r[R.TL], stageName, n, apN, sbN);
+      accumulate(dimAgg.platform, r[R.PLAT], stageName, n, apN, sbN);
+      accumulate(dimAgg.Approve_Type, r[R.AT], stageName, n, apN, sbN);
+      accumulate(dimAgg.month, r[R.MO], stageName, n, apN, sbN);
+      accumulate(dimAgg.institute_name, r[R.INST], stageName, n, apN, sbN);
     }
 
-    lastFiltered = { total, overallStage, dimAgg, dimKeyToIdxList };
-    renderKPIs(total, overallStage);
-    renderFunnel(total, overallStage);
+    lastFiltered = { overall, dimAgg, dimKeyToIdxList };
+    renderKPIs(overall);
+    renderFunnel(overall);
     renderTable(lastFiltered);
-    document.getElementById('liveCount').textContent = total.toLocaleString();
+    document.getElementById('liveCount').textContent = overall.total.toLocaleString();
   }
 
-  function accumulate(map, key, stageIdx, n){
+  function accumulate(map, key, stageName, n, apN, sbN){
     let entry = map.get(key);
-    if (!entry) { entry = { total:0, stages:new Array(stages.length).fill(0) }; map.set(key, entry); }
+    if (!entry) { entry = { total:0, submitted:0, approved:0, stages:{} }; map.set(key, entry); }
     entry.total += n;
-    entry.stages[stageIdx] += n;
+    entry.submitted += sbN;
+    entry.approved += apN;
+    entry.stages[stageName] = (entry.stages[stageName]||0) + n;
   }
 
   function refresh(){ computeAndRender(); }
 
   /* ---------------- render: KPIs ---------------- */
-  function renderKPIs(total, overallStage){
+  function renderKPIs(overall){
     const row = document.getElementById('kpiRow');
-    let html = `<div class="kpi total"><div class="label">Total created</div><div class="value num">${total.toLocaleString()}</div><div class="sub">matching current filters</div></div>`;
-    stageIdxOrder.forEach(si => {
-      const name = stages[si];
-      const c = overallStage[si] || 0;
-      const pct = total > 0 ? (c/total*100) : 0;
-      const col = stageColor(name);
-      html += `<div class="kpi"><div class="label">${name}</div><div class="value num" style="color:${col.fg}">${c.toLocaleString()}</div><div class="sub">${pct.toFixed(1)}% of created</div></div>`;
+    let html = '';
+    METRICS.forEach(m => {
+      const v = m.get(overall);
+      const sub = m.isBase ? 'matching current filters' : ((overall.total>0 ? (v/overall.total*100) : 0).toFixed(1) + '% of created');
+      html += `<div class="kpi"><div class="label">${m.label}</div><div class="value num" style="color:${m.fg}">${v.toLocaleString()}</div><div class="sub">${sub}</div></div>`;
     });
     row.innerHTML = html;
   }
 
-  /* ---------------- render: funnel bar ---------------- */
-  function renderFunnel(total, overallStage){
+  /* ---------------- render: funnel (8-stage list) ---------------- */
+  function renderFunnel(overall){
     const bar = document.getElementById('funnelBar');
-    const legend = document.getElementById('funnelLegend');
-    let barHtml = '', legendHtml = '';
-    stageIdxOrder.forEach(si => {
-      const name = stages[si];
-      const c = overallStage[si] || 0;
-      const pct = total > 0 ? (c/total*100) : 0;
-      const col = stageColor(name);
-      barHtml += `<div class="funnel-seg" style="width:${pct}%;background:${col.fg};" title="${name}: ${c.toLocaleString()} (${pct.toFixed(1)}%)"></div>`;
-      legendHtml += `<div class="legend-item"><span class="legend-dot" style="background:${col.fg}"></span>${name} &nbsp;<span class="num">${c.toLocaleString()}</span> (${pct.toFixed(1)}%)</div>`;
+    const total = overall.total;
+    const maxV = Math.max(1, ...METRICS.map(m => m.get(overall)));
+    let barHtml = '';
+    METRICS.forEach(m => {
+      const v = m.get(overall);
+      const pctOfCreated = total > 0 ? (v/total*100) : 0;
+      const widthPct = (v/maxV*100);
+      barHtml += `<div class="funnel-row">
+        <div class="funnel-row-label">${m.label}</div>
+        <div class="funnel-row-track"><div class="funnel-row-fill" style="width:${widthPct}%;background:${m.fg};"></div></div>
+        <div class="funnel-row-value num" style="color:${m.fg}">${v.toLocaleString()}<span class="funnel-row-pct">${m.isBase ? '' : ' · ' + pctOfCreated.toFixed(1) + '%'}</span></div>
+      </div>`;
     });
     bar.innerHTML = barHtml;
-    legend.innerHTML = legendHtml;
   }
 
   /* ---------------- render: breakdown table ---------------- */
@@ -520,8 +522,11 @@
 
     // header
     const headRow = document.getElementById('tableHeadRow');
-    let headHtml = `<th data-col="name">${DIM_LABELS[dim]}</th><th data-col="total">Created</th>`;
-    stageIdxOrder.forEach(si => { headHtml += `<th data-col="s${si}">${stages[si]}</th><th data-col="s${si}_pct">${stages[si]} %</th>`; });
+    let headHtml = `<th data-col="name">${DIM_LABELS[dim]}</th>`;
+    METRICS.forEach(m => {
+      headHtml += `<th data-col="${m.key}">${m.label}</th>`;
+      if (!m.isBase) headHtml += `<th data-col="${m.key}_pct">${m.label} %</th>`;
+    });
     headRow.innerHTML = headHtml;
 
     // rows
@@ -530,7 +535,7 @@
       let name = idxList[key];
       if (name === '(None)') return;
       if (dim === 'month') name = monthLabel(name);
-      entries.push({ name, total: val.total, stages: val.stages });
+      entries.push({ name, total: val.total, submitted: val.submitted, approved: val.approved, stages: val.stages });
     });
 
     if (state.tableSearch) {
@@ -538,16 +543,17 @@
     }
 
     const sortCol = state.tableSort.col;
+    const metricByKey = {};
+    METRICS.forEach(m => metricByKey[m.key] = m);
     entries.sort((a,b) => {
       let va, vb;
       if (sortCol === 'name') { va = a.name; vb = b.name; }
-      else if (sortCol === 'total') { va = a.total; vb = b.total; }
       else if (sortCol.endsWith('_pct')) {
-        const si = parseInt(sortCol.slice(1, -4));
-        va = a.total ? a.stages[si]/a.total : 0; vb = b.total ? b.stages[si]/b.total : 0;
+        const m = metricByKey[sortCol.slice(0, -4)];
+        va = a.total ? m.get(a)/a.total : 0; vb = b.total ? m.get(b)/b.total : 0;
       } else {
-        const si = parseInt(sortCol.slice(1));
-        va = a.stages[si]; vb = b.stages[si];
+        const m = metricByKey[sortCol];
+        va = m.get(a); vb = m.get(b);
       }
       if (typeof va === 'string') return state.tableSort.dir === 'asc' ? va.localeCompare(vb) : vb.localeCompare(va);
       return state.tableSort.dir === 'asc' ? va - vb : vb - va;
@@ -565,16 +571,18 @@
     const body = document.getElementById('tableBody');
     let bodyHtml = '';
     entries.forEach(e => {
-      bodyHtml += `<tr><td>${e.name}</td><td class="num">${e.total.toLocaleString()}</td>`;
-      stageIdxOrder.forEach(si => {
-        const c = e.stages[si] || 0;
-        const pct = e.total > 0 ? (c/e.total*100) : 0;
-        const col = stageColor(stages[si]);
-        bodyHtml += `<td class="num" style="color:${col.fg}">${c.toLocaleString()}</td><td class="pct-cell num">${pct.toFixed(1)}%</td>`;
+      bodyHtml += `<tr><td>${e.name}</td>`;
+      METRICS.forEach(m => {
+        const v = m.get(e);
+        bodyHtml += `<td class="num" style="color:${m.fg}">${v.toLocaleString()}</td>`;
+        if (!m.isBase) {
+          const pct = e.total > 0 ? (v/e.total*100) : 0;
+          bodyHtml += `<td class="pct-cell num">${pct.toFixed(1)}%</td>`;
+        }
       });
       bodyHtml += '</tr>';
     });
-    body.innerHTML = bodyHtml || '<tr><td colspan="20" style="text-align:center;color:var(--text-faint);padding:24px;">No rows match this filter/search.</td></tr>';
+    body.innerHTML = bodyHtml || '<tr><td colspan="16" style="text-align:center;color:var(--text-faint);padding:24px;">No rows match this filter/search.</td></tr>';
     document.getElementById('tableHint').textContent = entries.length + ' rows';
   }
 
