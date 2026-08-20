@@ -220,9 +220,20 @@
       </div>
     </div>
 
-    <div class="filter-field">
-      <label>Month</label>
-      <select id="monthSelect"></select>
+    <div class="filter-field" style="position:relative;">
+      <label>Month <span style="text-transform:none;font-weight:500;">(multi-select)</span></label>
+      <button class="group-toggle" id="monthToggle">
+        <span id="monthToggleLabel">All months</span>
+        <span class="count-badge" id="monthCountBadge" style="display:none;">0</span>
+      </button>
+      <div class="group-panel" id="monthPanel">
+        <div class="search"><input type="text" id="monthSearch" placeholder="Search months…"></div>
+        <div class="actions">
+          <button id="monthSelectAll">Select all</button>
+          <button id="monthClear">Clear</button>
+        </div>
+        <div class="group-list" id="monthList"></div>
+      </div>
     </div>
 
     <div class="filter-field" style="position:relative;">
@@ -313,6 +324,7 @@
     { key:'backout',   label:'Backout',         fg:'#C4432B', bg:'#FBEAE6', get:(e)=>e.stages['Backout']||0 },
     { key:'inprocess', label:'In Process',      fg:'#B5750B', bg:'#FBF1DF', get:(e)=>e.stages['In Process']||0 },
     { key:'disbursed', label:'Disbursed',       fg:'#0F8B5F', bg:'#E6F5EE', get:(e)=>e.stages['Disbursed']||0 },
+    { key:'dontconsider', label:'Dont consider',fg:'#8A93A1', bg:'#F1F2F4', get:(e)=>e.stages['Dont consider']||0 },
   ];
 
   const DIM_LABELS = { group_name:'Group', segment:'Segment', TL_name:'TL Name', platform:'Platform', Approve_Type:'Approve Type', month:'Month', institute_name:'Institute' };
@@ -322,7 +334,8 @@
     createdDates: new Set(), // empty = all
     approvedDates: new Set(), // empty = all
     groups: new Set(), // empty = all
-    segment: 'All', tl: 'All', approveType: 'All', platform: 'All', month: 'All',
+    months: new Set(), // empty = all
+    segment: 'All', tl: 'All', approveType: 'All', platform: 'All',
     activeDim: 'group_name',
     tableSort: {col:'created', dir:'desc'},
     tableSearch: ''
@@ -346,19 +359,16 @@
     const mIdx = parseInt(parts[1], 10) - 1;
     return (MONTH_NAMES[mIdx] || ym) + ' ' + parts[0];
   }
-  const monthSel = document.getElementById('monthSelect');
-  const realMonths = months.filter(m => m !== '(None)');
-  monthSel.innerHTML = '<option value="All">All</option>' + realMonths.map(m => `<option value="${m}">${monthLabel(m)}</option>`).join('');
-  monthSel.addEventListener('change', e => { state.month = e.target.value; refresh(); });
 
   document.getElementById('segmentSelect').addEventListener('change', e => { state.segment = e.target.value; refresh(); });
   document.getElementById('tlSelect').addEventListener('change', e => { state.tl = e.target.value; refresh(); });
   document.getElementById('approveTypeSelect').addEventListener('change', e => { state.approveType = e.target.value; refresh(); });
   document.getElementById('platformSelect').addEventListener('change', e => { state.platform = e.target.value; refresh(); });
 
-  /* ---------------- generic multi-select panel (Group / Created date / Approved date) ---------------- */
+  /* ---------------- generic multi-select panel (Group / Created date / Approved date / Month) ---------------- */
   function setupMultiSelect(opts){
-    const { fullList, selectedSet, idPrefix, singularLabel, onChange } = opts;
+    const { fullList, selectedSet, idPrefix, singularLabel, onChange, labelFn } = opts;
+    const displayLabel = labelFn || (v => v);
     const toggle = document.getElementById(idPrefix + 'Toggle');
     const toggleLabel = document.getElementById(idPrefix + 'ToggleLabel');
     const badge = document.getElementById(idPrefix + 'CountBadge');
@@ -372,11 +382,12 @@
       list.innerHTML = '';
       const frag = document.createDocumentFragment();
       realItems.forEach(v => {
-        if (f && v.toLowerCase().indexOf(f) === -1) return;
+        const label = displayLabel(v);
+        if (f && label.toLowerCase().indexOf(f) === -1) return;
         const idx = fullList.indexOf(v);
         const item = document.createElement('label');
         item.className = 'group-item';
-        item.innerHTML = `<input type="checkbox" data-idx="${idx}" ${selectedSet.has(idx) ? 'checked' : ''}><span>${v}</span>`;
+        item.innerHTML = `<input type="checkbox" data-idx="${idx}" ${selectedSet.has(idx) ? 'checked' : ''}><span>${label}</span>`;
         frag.appendChild(item);
       });
       list.appendChild(frag);
@@ -413,6 +424,7 @@
   setupMultiSelect({ fullList: groups, selectedSet: state.groups, idPrefix: 'group', singularLabel: 'group', onChange: refresh });
   setupMultiSelect({ fullList: daysCreated, selectedSet: state.createdDates, idPrefix: 'createdDate', singularLabel: 'date', onChange: refresh });
   setupMultiSelect({ fullList: daysApproved, selectedSet: state.approvedDates, idPrefix: 'approvedDate', singularLabel: 'date', onChange: refresh });
+  setupMultiSelect({ fullList: months, selectedSet: state.months, idPrefix: 'month', singularLabel: 'month', onChange: refresh, labelFn: monthLabel });
 
   // tabs
   document.getElementById('tabs').addEventListener('click', e => {
@@ -445,7 +457,7 @@
       if (state.tl !== 'All' && tls[r[R.TL]] !== state.tl) continue;
       if (state.approveType !== 'All' && approveTypes[r[R.AT]] !== state.approveType) continue;
       if (state.platform !== 'All' && platforms[r[R.PLAT]] !== state.platform) continue;
-      if (state.month !== 'All' && months[r[R.MO]] !== state.month) continue;
+      if (state.months.size > 0 && !state.months.has(r[R.MO])) continue;
       if (state.groups.size > 0 && !state.groups.has(r[R.G])) continue;
 
       const n = r[R.N], apN = r[R.APN], sbN = r[R.SBN], stageName = stages[r[R.ST]];
