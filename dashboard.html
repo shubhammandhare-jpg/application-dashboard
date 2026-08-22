@@ -318,25 +318,37 @@
   // row = [createdDayIdx, approvedDayIdx, monthIdx, groupIdx, segmentIdx, tlIdx, platformIdx, approveTypeIdx, instituteIdx, customerTypeIdx, stageIdx, n, approvedN, submittedN]
   const R = { CW:0, AW:1, MO:2, G:3, SEG:4, TL:5, PLAT:6, AT:7, INST:8, CT:9, ST:10, N:11, APN:12, SBN:13 };
 
-  // The 9-stage funnel. EXACT matches against Final_Stage categories (not
-  // cumulative/transitive beyond what's explicitly unioned below) —
-  // percentages are all "% of Created" and won't add up to 100%.
-  // Submitted/Approved are unions of the underlying raw Final_Stage
-  // categories they're defined from, de-duplicated so nothing is counted twice.
-  function approvedCount(e){
-    return (e.stages['Post Credit Backout']||0) + (e.stages['In Process']||0) + (e.stages['Disbursed']||0);
-  }
+  // The 9-stage funnel. Submitted and Approved are computed directly from
+  // your data (form_filled_on / Approved_Date being filled in), matching
+  // your actual records rather than being derived from other stages.
+  // Every other metric is an exact match against its Final_Stage category.
+  // Percentages use a different base per metric — see the `base` field below.
   const METRICS = [
-    { key:'created',    label:'Created',             fg:'#10141C', bg:'#EEF0F2', isBase:true, get:(e)=>e.total },
-    { key:'incomplete', label:'Incomplete',          fg:'#6B7280', bg:'#EEF0F2', get:(e)=>e.stages['Incomplete Lead']||0 },
-    { key:'submitted',  label:'Submitted',           fg:'#2A4CDB', bg:'#EAEEFD', get:(e)=>approvedCount(e) + (e.stages['Rejected']||0) },
-    { key:'precredit',  label:'PreCredit Backout',   fg:'#C4432B', bg:'#FBEAE6', get:(e)=>e.stages['PreCredit Backout']||0 },
-    { key:'rejected',   label:'Rejected',            fg:'#9E2A2B', bg:'#F8E6E6', get:(e)=>e.stages['Rejected']||0 },
-    { key:'approved',   label:'Approved',            fg:'#0B6E99', bg:'#E5F1F7', get:approvedCount },
-    { key:'postcredit', label:'Post Credit Backout', fg:'#B5750B', bg:'#FBF1DF', get:(e)=>e.stages['Post Credit Backout']||0 },
-    { key:'inprocess',  label:'In Process',          fg:'#8A5A00', bg:'#FBF1DF', get:(e)=>e.stages['In Process']||0 },
-    { key:'disb',       label:'Disb',                fg:'#0F8B5F', bg:'#E6F5EE', get:(e)=>e.stages['Disbursed']||0 },
+    { key:'created',    label:'Created',             fg:'#10141C', bg:'#EEF0F2', isBase:true, base:null,        get:(e)=>e.total },
+    { key:'incomplete', label:'Incomplete',          fg:'#6B7280', bg:'#EEF0F2', base:'created',   get:(e)=>e.stages['Incomplete Lead']||0 },
+    { key:'submitted',  label:'Submitted',           fg:'#2A4CDB', bg:'#EAEEFD', base:'created',   get:(e)=>e.submitted },
+    { key:'precredit',  label:'PreCredit Backout',   fg:'#C4432B', bg:'#FBEAE6', base:'submitted', get:(e)=>e.stages['PreCredit Backout']||0 },
+    { key:'rejected',   label:'Rejected',            fg:'#9E2A2B', bg:'#F8E6E6', base:'submitted', get:(e)=>e.stages['Rejected']||0 },
+    { key:'approved',   label:'Approved',            fg:'#0B6E99', bg:'#E5F1F7', base:'submitted', get:(e)=>e.approved },
+    { key:'postcredit', label:'Post Credit Backout', fg:'#B5750B', bg:'#FBF1DF', base:'approved',  get:(e)=>e.stages['Post Credit Backout']||0 },
+    { key:'inprocess',  label:'In Process',          fg:'#8A5A00', bg:'#FBF1DF', base:'approved',  get:(e)=>e.stages['In Process']||0 },
+    { key:'disb',       label:'Disb',                fg:'#0F8B5F', bg:'#E6F5EE', base:'approved',  get:(e)=>e.stages['Disbursed']||0 },
   ];
+  const METRIC_BY_KEY = {};
+  METRICS.forEach(m => METRIC_BY_KEY[m.key] = m);
+
+  // Resolves the correct denominator for a metric's percentage (per-metric base, not always Created)
+  function metricPct(m, e){
+    if (m.isBase) return null;
+    const baseMetric = METRIC_BY_KEY[m.base] || METRIC_BY_KEY['created'];
+    const baseVal = baseMetric.get(e);
+    const v = m.get(e);
+    return baseVal > 0 ? (v / baseVal * 100) : 0;
+  }
+  function metricBaseLabel(m){
+    const baseMetric = METRIC_BY_KEY[m.base] || METRIC_BY_KEY['created'];
+    return baseMetric.label.toLowerCase();
+  }
 
   const DIM_LABELS = { group_name:'Group', segment:'Segment', TL_name:'TL Name', platform:'Platform', Approve_Type:'Approve Type', month:'Month', institute_name:'Institute', customer_type:'Customer Type' };
 
@@ -514,32 +526,32 @@
     let html = '';
     METRICS.forEach(m => {
       const v = m.get(overall);
-      const sub = m.isBase ? 'matching current filters' : ((overall.total>0 ? (v/overall.total*100) : 0).toFixed(1) + '% of created');
+      const sub = m.isBase ? 'matching current filters' : (metricPct(m, overall).toFixed(1) + '% of ' + metricBaseLabel(m));
       html += `<div class="kpi"><div class="label">${m.label}</div><div class="value num" style="color:${m.fg}">${v.toLocaleString()}</div><div class="sub">${sub}</div></div>`;
     });
     row.innerHTML = html;
   }
 
-  /* ---------------- render: funnel (8-stage list) ---------------- */
+  /* ---------------- render: funnel (9-stage list) ---------------- */
   function renderFunnel(overall){
     const bar = document.getElementById('funnelBar');
-    const total = overall.total;
     const maxV = Math.max(1, ...METRICS.map(m => m.get(overall)));
     let barHtml = '';
     METRICS.forEach(m => {
       const v = m.get(overall);
-      const pctOfCreated = total > 0 ? (v/total*100) : 0;
+      const pct = m.isBase ? null : metricPct(m, overall);
       const widthPct = (v/maxV*100);
       barHtml += `<div class="funnel-row">
         <div class="funnel-row-label">${m.label}</div>
         <div class="funnel-row-track"><div class="funnel-row-fill" style="width:${widthPct}%;background:${m.fg};"></div></div>
-        <div class="funnel-row-value num" style="color:${m.fg}">${v.toLocaleString()}<span class="funnel-row-pct">${m.isBase ? '' : ' · ' + pctOfCreated.toFixed(1) + '%'}</span></div>
+        <div class="funnel-row-value num" style="color:${m.fg}">${v.toLocaleString()}<span class="funnel-row-pct">${m.isBase ? '' : ' · ' + pct.toFixed(1) + '% of ' + metricBaseLabel(m)}</span></div>
       </div>`;
     });
     bar.innerHTML = barHtml;
   }
 
   /* ---------------- render: breakdown table ---------------- */
+
 
   function renderTable(filteredData){
     if (!filteredData) return;
@@ -552,7 +564,7 @@
     let headHtml = `<th data-col="name">${DIM_LABELS[dim]}</th>`;
     METRICS.forEach(m => {
       headHtml += `<th data-col="${m.key}">${m.label}</th>`;
-      if (!m.isBase) headHtml += `<th data-col="${m.key}_pct">${m.label} %</th>`;
+      if (!m.isBase) headHtml += `<th data-col="${m.key}_pct">${m.label} % <span style="text-transform:none;font-weight:500;">(of ${metricBaseLabel(m)})</span></th>`;
     });
     headRow.innerHTML = headHtml;
 
@@ -570,16 +582,14 @@
     }
 
     const sortCol = state.tableSort.col;
-    const metricByKey = {};
-    METRICS.forEach(m => metricByKey[m.key] = m);
     entries.sort((a,b) => {
       let va, vb;
       if (sortCol === 'name') { va = a.name; vb = b.name; }
       else if (sortCol.endsWith('_pct')) {
-        const m = metricByKey[sortCol.slice(0, -4)];
-        va = a.total ? m.get(a)/a.total : 0; vb = b.total ? m.get(b)/b.total : 0;
+        const m = METRIC_BY_KEY[sortCol.slice(0, -4)];
+        va = metricPct(m, a); vb = metricPct(m, b);
       } else {
-        const m = metricByKey[sortCol];
+        const m = METRIC_BY_KEY[sortCol];
         va = m.get(a); vb = m.get(b);
       }
       if (typeof va === 'string') return state.tableSort.dir === 'asc' ? va.localeCompare(vb) : vb.localeCompare(va);
@@ -603,7 +613,7 @@
         const v = m.get(e);
         bodyHtml += `<td class="num" style="color:${m.fg}">${v.toLocaleString()}</td>`;
         if (!m.isBase) {
-          const pct = e.total > 0 ? (v/e.total*100) : 0;
+          const pct = metricPct(m, e);
           bodyHtml += `<td class="pct-cell num">${pct.toFixed(1)}%</td>`;
         }
       });
