@@ -175,6 +175,13 @@
     .wrap{padding:18px;}
     .group-panel{width:260px;}
   }
+  .subtabs{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 14px;max-height:150px;overflow-y:auto;}
+  .sub-btn{border:0;background:#EEF2F8;color:#475569;padding:9px 16px;border-radius:12px 12px 0 0;font:600 13px inherit;font-family:inherit;cursor:pointer;}
+  .sub-btn:hover{background:#E1E8F3;}
+  .sub-btn.active{background:#1E3A8A;color:#fff;}
+  .pagenav{display:flex;gap:8px;margin:0 0 16px;}
+  .page-btn{border:1px solid var(--border);background:var(--surface);color:var(--text-soft);padding:8px 16px;border-radius:8px;font:600 13px inherit;font-family:inherit;cursor:pointer;}
+  .page-btn.active{background:var(--accent);color:#fff;border-color:var(--accent);}
 </style>
 </head>
 <body>
@@ -186,6 +193,11 @@
       <div class="subtitle">Created &rarr; Approved &rarr; Disbursed, filtered live &middot; <span id="liveCount">—</span> applications matching current filters &middot; data as of <span id="dataAsOf">—</span></div>
     </div>
   </header>
+
+  <div class="pagenav" id="pageNav">
+    <button class="page-btn active" data-page="1">Funnel</button>
+    <button class="page-btn" data-page="2">Delay bucket analysis</button>
+  </div>
 
   <div class="filterbar" id="filterbar">
     <div class="filter-field" style="position:relative;">
@@ -272,7 +284,7 @@
       <label>Customer Type</label>
       <select id="customerTypeSelect"></select>
     </div>
-    <div class="filter-field">
+    <div class="filter-field" id="delayField" style="display:none;">
       <label>Delay bucket</label>
       <select id="delaySelect"></select>
     </div>
@@ -280,7 +292,7 @@
 
   <div class="kpis" id="kpiRow"></div>
 
-  <div class="funnel-card">
+  <div class="funnel-card" id="funnelCard">
     <h2>Application funnel</h2>
     <div class="funnel-bar" id="funnelBar"></div>
   </div>
@@ -294,10 +306,18 @@
     <button class="tab-btn" data-dim="month">Month-wise</button>
     <button class="tab-btn" data-dim="institute_name">Institute-wise</button>
     <button class="tab-btn" data-dim="customer_type">New vs Retention</button>
-    <button class="tab-btn" data-dim="delaybucket">Delay bucket-wise</button>
-    <button class="tab-btn" data-dim="segment_delay">Segment &times; Delay bucket</button>
-    <button class="tab-btn" data-dim="tl_delay">TL &times; Delay bucket</button>
   </div>
+
+  <div class="tabs" id="tabs2" style="display:none;">
+    <button class="tab-btn active" data-p2dim="segment">Segment</button>
+    <button class="tab-btn" data-p2dim="TL_name">TL</button>
+    <button class="tab-btn" data-p2dim="group_name">Group</button>
+    <button class="tab-btn" data-p2dim="platform">Platform</button>
+    <button class="tab-btn" data-p2dim="Approve_Type">Approval Type</button>
+    <button class="tab-btn" data-p2dim="customer_type">Customer Type</button>
+    <button class="tab-btn" data-p2dim="month">Month Wise</button>
+  </div>
+  <div class="subtabs" id="subtabs2" style="display:none;"></div>
 
   <div class="table-card">
     <div class="table-toolbar">
@@ -365,6 +385,7 @@
   }
 
   const DIM_LABELS = { group_name:'Group', segment:'Segment', TL_name:'TL Name', platform:'Platform', Approve_Type:'Approve Type', month:'Month', institute_name:'Institute', customer_type:'Customer Type', delaybucket:'Delay bucket', segment_delay:'Segment', tl_delay:'TL Name' };
+  const P2DIMS = { segment:{col:'SEG', list:()=>segments}, TL_name:{col:'TL', list:()=>tls}, group_name:{col:'G', list:()=>groups}, platform:{col:'PLAT', list:()=>platforms}, Approve_Type:{col:'AT', list:()=>approveTypes}, customer_type:{col:'CT', list:()=>customerTypes}, month:{col:'MO', list:()=>months} };
   const CROSS = { segment_delay:{ a:'segment', list:()=>segments, label2:'Delay bucket' }, tl_delay:{ a:'TL_name', list:()=>tls, label2:'Delay bucket' } };
 
   /* ---------------- state ---------------- */
@@ -373,7 +394,7 @@
     approvedDates: new Set(), // empty = all
     groups: new Set(), // empty = all
     months: new Set(), // empty = all
-    segment: 'All', tl: 'All', approveType: 'All', platform: 'All', customerType: 'All', delay: 'All',
+    segment: 'All', tl: 'All', approveType: 'All', platform: 'All', customerType: 'All', delay: 'All', page: 1, p2Dim: 'segment', p2Val: 'All',
     activeDim: 'group_name',
     tableSort: {col:'created', dir:'desc'},
     tableSearch: ''
@@ -469,14 +490,50 @@
   setupMultiSelect({ fullList: months, selectedSet: state.months, idPrefix: 'month', singularLabel: 'month', onChange: refresh, labelFn: monthLabel });
 
   // tabs
-  document.getElementById('tabs').addEventListener('click', e => {
+  ['tabs'].forEach(id => document.getElementById(id).addEventListener('click', e => {
     const btn = e.target.closest('.tab-btn');
     if (!btn) return;
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById(id).querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     state.activeDim = btn.dataset.dim;
     state.tableSort = CROSS[state.activeDim] ? {col:'name', dir:'asc'} : {col:'created', dir:'desc'};
     renderTable(lastFiltered);
+  }));
+
+  document.getElementById('tabs2').addEventListener('click', e => {
+    const btn = e.target.closest('.tab-btn');
+    if (!btn) return;
+    document.querySelectorAll('#tabs2 .tab-btn').forEach(b => b.classList.toggle('active', b === btn));
+    state.p2Dim = btn.dataset.p2dim; state.p2Val = 'All'; state.activeDim = state.p2Dim === 'group_name' ? 'group_name' : 'delaybucket'; state.tableSort = state.p2Dim === 'group_name' ? {col:'created', dir:'desc'} : {col:'name', dir:'asc'};
+    renderTable(lastFiltered);
+  });
+  document.getElementById('subtabs2').addEventListener('click', e => {
+    const btn = e.target.closest('.sub-btn');
+    if (!btn) return;
+    state.p2Val = btn.dataset.val;
+    renderTable(lastFiltered);
+  });
+
+  // page switch: page 1 = funnel, page 2 = delay bucket analysis
+  document.getElementById('pageNav').addEventListener('click', e => {
+    const b = e.target.closest('.page-btn');
+    if (!b) return;
+    const page = b.dataset.page;
+    document.querySelectorAll('.page-btn').forEach(x => x.classList.toggle('active', x === b));
+    const p2 = page === '2';
+    state.page = p2 ? 2 : 1;
+    document.getElementById('subtabs2').style.display = p2 ? '' : 'none';
+    document.getElementById('tabs').style.display = p2 ? 'none' : '';
+    document.getElementById('tabs2').style.display = p2 ? '' : 'none';
+    document.getElementById('funnelCard').style.display = p2 ? 'none' : '';
+    document.getElementById('kpiRow').style.display = p2 ? 'none' : '';
+    if (!p2) { state.delay = 'All'; document.getElementById('delaySelect').value = 'All'; }
+    if (p2) { state.activeDim = state.p2Dim === 'group_name' ? 'group_name' : 'delaybucket'; state.tableSort = state.p2Dim === 'group_name' ? {col:'created', dir:'desc'} : {col:'name', dir:'asc'}; }
+    else {
+      state.activeDim = document.querySelector('#tabs .tab-btn.active').dataset.dim;
+      state.tableSort = {col:'created', dir:'desc'};
+    }
+    computeAndRender();
   });
   document.getElementById('tableSearch').addEventListener('input', e => {
     state.tableSearch = e.target.value.toLowerCase();
@@ -488,8 +545,9 @@
   function computeAndRender(){
     const overall = { total:0, submitted:0, approved:0, stages:{} };
 
-    const dimAgg = { group_name: new Map(), segment: new Map(), TL_name: new Map(), platform: new Map(), Approve_Type: new Map(), month: new Map(), institute_name: new Map(), customer_type: new Map(), delaybucket: new Map(), segment_delay: new Map(), tl_delay: new Map() };
-    const dimKeyToIdxList = { group_name: groups, segment: segments, TL_name: tls, platform: platforms, Approve_Type: approveTypes, month: months, institute_name: institutes, customer_type: customerTypes, delaybucket: delayBuckets, segment_delay: segments, tl_delay: tls };
+    const dimAgg = { group_name: new Map(), segment: new Map(), TL_name: new Map(), platform: new Map(), Approve_Type: new Map(), month: new Map(), institute_name: new Map(), customer_type: new Map(), delaybucket: new Map() };
+    Object.keys(P2DIMS).forEach(k => dimAgg['p2_' + k] = new Map());
+    const dimKeyToIdxList = { group_name: groups, segment: segments, TL_name: tls, platform: platforms, Approve_Type: approveTypes, month: months, institute_name: institutes, customer_type: customerTypes, delaybucket: delayBuckets };
 
     for (let i = 0; i < rows.length; i++) {
       const r = rows[i];
@@ -519,8 +577,7 @@
       accumulate(dimAgg.institute_name, r[R.INST], stageName, n, apN, sbN);
       accumulate(dimAgg.customer_type, r[R.CT], stageName, n, apN, sbN);
       accumulate(dimAgg.delaybucket, r[R.DL], stageName, n, apN, sbN);
-      accumulate(dimAgg.segment_delay, r[R.SEG] + '|' + r[R.DL], stageName, n, apN, sbN);
-      accumulate(dimAgg.tl_delay, r[R.TL] + '|' + r[R.DL], stageName, n, apN, sbN);
+      for (const k in P2DIMS) accumulate(dimAgg['p2_' + k], r[R[P2DIMS[k].col]] + '|' + r[R.DL], stageName, n, apN, sbN);
     }
 
     lastFiltered = { overall, dimAgg, dimKeyToIdxList };
@@ -576,9 +633,49 @@
 
   function renderTable(filteredData){
     if (!filteredData) return;
-    const dim = state.activeDim;
-    const map = filteredData.dimAgg[dim];
-    const idxList = filteredData.dimKeyToIdxList[dim];
+    let dim = state.activeDim;
+    let map = filteredData.dimAgg[dim];
+    let idxList = filteredData.dimKeyToIdxList[dim];
+    if (state.page === 2 && state.p2Dim === 'group_name') {
+      // Group: rows = groups; sub-tabs above the table = delay buckets
+      dim = 'group_name';
+      const p2 = P2DIMS[dim];
+      idxList = p2.list();
+      const src = filteredData.dimAgg['p2_' + dim];
+      const present = new Set();
+      src.forEach((v, k) => present.add(parseInt(String(k).split('|')[1])));
+      const bids = [...present].sort((a,b) => natCmp(delayBuckets[a], delayBuckets[b]));
+      if (state.p2Val !== 'All' && !present.has(parseInt(state.p2Val))) state.p2Val = 'All';
+      document.getElementById('subtabs2').innerHTML =
+        `<button class="sub-btn${state.p2Val === 'All' ? ' active' : ''}" data-val="All">All</button>` +
+        bids.map(i => `<button class="sub-btn${String(state.p2Val) === String(i) ? ' active' : ''}" data-val="${i}">${delayBuckets[i].replace(/</g,'&lt;')}</button>`).join('');
+      if (state.p2Val === 'All') map = filteredData.dimAgg[dim];
+      else {
+        map = new Map();
+        const want = String(state.p2Val);
+        src.forEach((v, k) => { const [a, b] = String(k).split('|'); if (b === want) map.set(parseInt(a), v); });
+      }
+    } else if (state.page === 2) {
+      // Other dimensions: rows = delay buckets; sub-tabs above the table = values of the dimension
+      dim = 'delaybucket';
+      idxList = delayBuckets;
+      const p2 = P2DIMS[state.p2Dim], vals = p2.list(), src = filteredData.dimAgg['p2_' + state.p2Dim];
+      const tot = new Map();
+      src.forEach((v, k) => { const vi = parseInt(String(k).split('|')[0]); tot.set(vi, (tot.get(vi)||0) + v.total); });
+      let ids = [...tot.keys()].filter(i => vals[i] !== '(None)');
+      ids.sort(state.p2Dim === 'month' ? (a,b) => natCmp(vals[a], vals[b]) : (a,b) => tot.get(b) - tot.get(a));
+      if (state.p2Val !== 'All' && !ids.includes(parseInt(state.p2Val))) state.p2Val = 'All';
+      const lab = i => state.p2Dim === 'month' ? monthLabel(vals[i]) : vals[i];
+      document.getElementById('subtabs2').innerHTML =
+        `<button class="sub-btn${state.p2Val === 'All' ? ' active' : ''}" data-val="All">All</button>` +
+        ids.map(i => `<button class="sub-btn${String(state.p2Val) === String(i) ? ' active' : ''}" data-val="${i}">${lab(i).replace(/</g,'&lt;')}</button>`).join('');
+      if (state.p2Val === 'All') map = filteredData.dimAgg.delaybucket;
+      else {
+        map = new Map();
+        const want = String(state.p2Val);
+        src.forEach((v, k) => { const [a, b] = String(k).split('|'); if (a === want) map.set(parseInt(b), v); });
+      }
+    }
 
     // header
     const headRow = document.getElementById('tableHeadRow');
