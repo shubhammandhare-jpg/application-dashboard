@@ -179,6 +179,11 @@
   .sub-btn{border:0;background:#EEF2F8;color:#475569;padding:9px 16px;border-radius:12px 12px 0 0;font:600 13px inherit;font-family:inherit;cursor:pointer;}
   .sub-btn:hover{background:#E1E8F3;}
   .sub-btn.active{background:#1E3A8A;color:#fff;}
+  .section-title{font-size:12px;font-weight:700;color:var(--text-soft);margin:6px 2px 8px;text-transform:uppercase;letter-spacing:.04em;}
+  .pivot-caption{text-align:center;font-weight:700;padding:10px 12px;border-bottom:1px solid var(--border);}
+  .pivot-note{font-weight:500;color:var(--text-faint);font-size:12px;}
+  tbody tr.total-row td{font-weight:700;background:var(--bg);}
+  #monthPills{margin-bottom:10px;}
   .pagenav{display:flex;gap:8px;margin:0 0 16px;}
   .page-btn{border:1px solid var(--border);background:var(--surface);color:var(--text-soft);padding:8px 16px;border-radius:8px;font:600 13px inherit;font-family:inherit;cursor:pointer;}
   .page-btn.active{background:var(--accent);color:#fff;border-color:var(--accent);}
@@ -196,7 +201,7 @@
 
   <div class="pagenav" id="pageNav">
     <button class="page-btn active" data-page="1">Funnel</button>
-    <button class="page-btn" data-page="2">Delay bucket analysis</button>
+    <button class="page-btn" data-page="2">Inc to Comp analysis</button>
   </div>
 
   <div class="filterbar" id="filterbar">
@@ -285,7 +290,7 @@
       <select id="customerTypeSelect"></select>
     </div>
     <div class="filter-field" id="delayField" style="display:none;">
-      <label>Delay bucket</label>
+      <label>Inc to Comp Bucket</label>
       <select id="delaySelect"></select>
     </div>
   </div>
@@ -308,6 +313,8 @@
     <button class="tab-btn" data-dim="customer_type">New vs Retention</button>
   </div>
 
+  <div class="subtabs" id="monthPills" style="display:none;"></div>
+
   <div class="tabs" id="tabs2" style="display:none;">
     <button class="tab-btn active" data-p2dim="segment">Segment</button>
     <button class="tab-btn" data-p2dim="TL_name">TL</button>
@@ -317,6 +324,17 @@
     <button class="tab-btn" data-p2dim="customer_type">Customer Type</button>
     <button class="tab-btn" data-p2dim="month">Month Wise</button>
   </div>
+  <div id="p2Summary" style="display:none;">
+    <div class="table-card" style="margin-bottom:16px;">
+      <div class="pivot-caption" id="pivotCaption"></div>
+      <div class="table-scroll"><table><thead><tr id="pivotHead"></tr></thead><tbody id="pivotBody"></tbody></table></div>
+    </div>
+    <div class="table-card" style="margin-bottom:20px;">
+      <div class="pivot-caption" id="mixCaption"></div>
+      <div class="table-scroll"><table><thead><tr id="mixHead"></tr></thead><tbody id="mixBody"></tbody></table></div>
+    </div>
+  </div>
+  <div class="section-title" id="p2DetailHead" style="display:none;">Detailed funnel by Inc to Comp bucket</div>
   <div class="subtabs" id="subtabs2" style="display:none;"></div>
 
   <div class="table-card">
@@ -340,7 +358,7 @@
 (function(){
   const RAW = window.DASHBOARD_DATA;
   if (!RAW.delayBuckets) {
-    document.body.insertAdjacentHTML('afterbegin', '<div style="background:#FBEAE6;color:#9E2A2B;padding:12px 18px;font:600 14px sans-serif;">dashboard_data.js is from an older version (no delay bucket data). Re-run update_dashboard_data.py and upload dashboard.html + dashboard_data.js together.</div>');
+    document.body.insertAdjacentHTML('afterbegin', '<div style="background:#FBEAE6;color:#9E2A2B;padding:12px 18px;font:600 14px sans-serif;">dashboard_data.js is from an older version (no Inc to Comp bucket data). Re-run update_dashboard_data.py and upload dashboard.html + dashboard_data.js together.</div>');
     RAW.delayBuckets = ['(No Delay Bucket)'];
   }
   const { daysCreated, daysApproved, months, groups, segments, tls, platforms, approveTypes, institutes, customerTypes, stages, rows, generatedAt } = RAW;
@@ -384,9 +402,9 @@
     return baseMetric.label.toLowerCase();
   }
 
-  const DIM_LABELS = { group_name:'Group', segment:'Segment', TL_name:'TL Name', platform:'Platform', Approve_Type:'Approve Type', month:'Month', institute_name:'Institute', customer_type:'Customer Type', delaybucket:'Delay bucket', segment_delay:'Segment', tl_delay:'TL Name' };
+  const DIM_LABELS = { group_name:'Group', segment:'Segment', TL_name:'TL Name', platform:'Platform', Approve_Type:'Approve Type', month:'Month', institute_name:'Institute', customer_type:'Customer Type', delaybucket:'Inc to Comp Bucket', segment_delay:'Segment', tl_delay:'TL Name' };
   const P2DIMS = { segment:{col:'SEG', list:()=>segments}, TL_name:{col:'TL', list:()=>tls}, group_name:{col:'G', list:()=>groups}, platform:{col:'PLAT', list:()=>platforms}, Approve_Type:{col:'AT', list:()=>approveTypes}, customer_type:{col:'CT', list:()=>customerTypes}, month:{col:'MO', list:()=>months} };
-  const CROSS = { segment_delay:{ a:'segment', list:()=>segments, label2:'Delay bucket' }, tl_delay:{ a:'TL_name', list:()=>tls, label2:'Delay bucket' } };
+  const CROSS = { segment_delay:{ a:'segment', list:()=>segments, label2:'Inc to Comp Bucket' }, tl_delay:{ a:'TL_name', list:()=>tls, label2:'Inc to Comp Bucket' } };
 
   /* ---------------- state ---------------- */
   const state = {
@@ -482,12 +500,13 @@
     document.addEventListener('click', e => {
       if (!e.target.closest('#' + idPrefix + 'Toggle') && !e.target.closest('#' + idPrefix + 'Panel')) panel.classList.remove('open');
     });
+    return { sync(){ renderList(searchInput.value); updateLabel(); } };
   }
 
   setupMultiSelect({ fullList: groups, selectedSet: state.groups, idPrefix: 'group', singularLabel: 'group', onChange: refresh });
   setupMultiSelect({ fullList: daysCreated, selectedSet: state.createdDates, idPrefix: 'createdDate', singularLabel: 'date', onChange: refresh });
   setupMultiSelect({ fullList: daysApproved, selectedSet: state.approvedDates, idPrefix: 'approvedDate', singularLabel: 'date', onChange: refresh });
-  setupMultiSelect({ fullList: months, selectedSet: state.months, idPrefix: 'month', singularLabel: 'month', onChange: refresh, labelFn: monthLabel });
+  const monthMS = setupMultiSelect({ fullList: months, selectedSet: state.months, idPrefix: 'month', singularLabel: 'month', onChange: refresh, labelFn: monthLabel });
 
   // tabs
   ['tabs'].forEach(id => document.getElementById(id).addEventListener('click', e => {
@@ -507,6 +526,14 @@
     state.p2Dim = btn.dataset.p2dim; state.p2Val = 'All'; state.activeDim = state.p2Dim === 'group_name' ? 'group_name' : 'delaybucket'; state.tableSort = state.p2Dim === 'group_name' ? {col:'created', dir:'desc'} : {col:'name', dir:'asc'};
     renderTable(lastFiltered);
   });
+  document.getElementById('monthPills').addEventListener('click', e => {
+    const btn = e.target.closest('.sub-btn');
+    if (!btn) return;
+    state.months.clear();
+    if (btn.dataset.val !== 'All') state.months.add(parseInt(btn.dataset.val));
+    monthMS.sync();
+    refresh();
+  });
   document.getElementById('subtabs2').addEventListener('click', e => {
     const btn = e.target.closest('.sub-btn');
     if (!btn) return;
@@ -523,6 +550,9 @@
     const p2 = page === '2';
     state.page = p2 ? 2 : 1;
     document.getElementById('subtabs2').style.display = p2 ? '' : 'none';
+    document.getElementById('monthPills').style.display = p2 ? '' : 'none';
+    document.getElementById('p2Summary').style.display = p2 ? '' : 'none';
+    document.getElementById('p2DetailHead').style.display = p2 ? '' : 'none';
     document.getElementById('tabs').style.display = p2 ? 'none' : '';
     document.getElementById('tabs2').style.display = p2 ? '' : 'none';
     document.getElementById('funnelCard').style.display = p2 ? 'none' : '';
@@ -598,6 +628,71 @@
 
   function refresh(){ computeAndRender(); }
 
+  // A record is 'Complete' when it has a real Inc to Comp bucket (e.g. '0-5 Minutes'); blank / 'Not Completed' = still incomplete.
+  const isCompleteBucket = (b) => { const t = String(b||'').trim().toLowerCase(); return t !== '' && t !== '(no delay bucket)' && t !== 'not completed' && t !== 'not complete' && t !== 'incomplete'; };
+  const monthShort = (ym) => { if (ym === '(None)') return ym; const p = ym.split('-'); return (MONTH_NAMES[parseInt(p[1],10)-1] || ym).slice(0,3) + "'" + p[0].slice(2); };
+  const esc = (t) => String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  const pct2 = (v, base) => (base > 0 ? (v / base * 100) : 0).toFixed(2) + '%';
+
+  function renderMonthPills(){
+    const ids = months.map((m,i) => i).filter(i => months[i] !== '(None)').sort((a,b) => natCmp(months[a], months[b]));
+    document.getElementById('monthPills').innerHTML =
+      `<button class="sub-btn${state.months.size === 0 ? ' active' : ''}" data-val="All">All months</button>` +
+      ids.map(i => `<button class="sub-btn${state.months.has(i) ? ' active' : ''}" data-val="${i}">${monthShort(months[i])}</button>`).join('');
+  }
+
+  // Page 2 summary: (A) chosen dimension x Inc to Comp bucket counts, (B) stage mix of completed applications per bucket
+  function renderP2Summary(fd){
+    const dim = state.p2Dim, vals = P2DIMS[dim].list();
+    const src = fd.dimAgg['p2_' + dim], base = fd.dimAgg[dim];
+    const bset = new Set();
+    fd.dimAgg.delaybucket.forEach((v, k) => { if (isCompleteBucket(delayBuckets[k]) && v.total > 0) bset.add(k); });
+    const bids = [...bset].sort((a,b) => natCmp(delayBuckets[a], delayBuckets[b]));
+
+    const selM = [...state.months].map(i => months[i]).sort(natCmp).map(monthShort);
+    const monthText = selM.length ? selM.join(', ') : 'All months';
+
+    // ----- A: pivot
+    const rowMap = new Map();
+    base.forEach((e, vi) => rowMap.set(vi, { total:e.total, complete:0, by:{} }));
+    src.forEach((e, k) => {
+      const parts = String(k).split('|'), a = parseInt(parts[0]), b = parseInt(parts[1]);
+      if (!isCompleteBucket(delayBuckets[b])) return;
+      const r = rowMap.get(a); if (!r) return;
+      r.by[b] = (r.by[b] || 0) + e.total; r.complete += e.total;
+    });
+    const rows = [...rowMap.entries()].filter(([vi]) => vals[vi] !== '(None)')
+      .map(([vi, r]) => ({ raw: vals[vi], name: dim === 'month' ? monthLabel(vals[vi]) : vals[vi], total:r.total, complete:r.complete, by:r.by }));
+    rows.sort(dim === 'month' ? (a,b) => natCmp(a.raw, b.raw) : (a,b) => natCmp(a.name, b.name));
+
+    document.getElementById('pivotCaption').innerHTML = esc(monthText) + ' <span class="pivot-note">&middot; ' + esc(DIM_LABELS[dim]) + '-wise &times; Inc to Comp Bucket</span>';
+    document.getElementById('pivotHead').innerHTML = `<th>${esc(DIM_LABELS[dim])}</th><th>Total</th><th>Complete</th><th>Complete %</th>` + bids.map(b => `<th>${esc(delayBuckets[b])}</th>`).join('');
+    const tot = { total:0, complete:0, by:{} };
+    let html = '';
+    rows.forEach(r => {
+      tot.total += r.total; tot.complete += r.complete;
+      bids.forEach(b => { tot.by[b] = (tot.by[b] || 0) + (r.by[b] || 0); });
+      html += `<tr><td>${esc(r.name)}</td><td class="num">${r.total.toLocaleString()}</td><td class="num">${r.complete.toLocaleString()}</td><td class="num">${pct2(r.complete, r.total)}</td>` +
+        bids.map(b => `<td class="num">${r.by[b] ? r.by[b].toLocaleString() : ''}</td>`).join('') + '</tr>';
+    });
+    if (rows.length) html += `<tr class="total-row"><td>Total</td><td class="num">${tot.total.toLocaleString()}</td><td class="num">${tot.complete.toLocaleString()}</td><td class="num">${pct2(tot.complete, tot.total)}</td>` +
+      bids.map(b => `<td class="num">${(tot.by[b] || 0).toLocaleString()}</td>`).join('') + '</tr>';
+    document.getElementById('pivotBody').innerHTML = html || '<tr><td colspan="4" style="text-align:center;color:var(--text-faint);padding:20px;">No rows match the current filters.</td></tr>';
+
+    // ----- B: stage mix of completed applications per bucket
+    const mixRows = bids.map(b => {
+      const e = fd.dimAgg.delaybucket.get(b), st = e.stages;
+      const backout = (st['PreCredit Backout'] || 0) + (st['Post Credit Backout'] || 0), disb = st['Disbursed'] || 0, proc = st['In Process'] || 0, rej = st['Rejected'] || 0;
+      return { name: delayBuckets[b], comp: e.total, backout, disb, proc, rej, other: e.total - backout - disb - proc - rej };
+    });
+    const G = mixRows.reduce((a, r) => ({ name:'Grand Total', comp:a.comp + r.comp, backout:a.backout + r.backout, disb:a.disb + r.disb, proc:a.proc + r.proc, rej:a.rej + r.rej, other:a.other + r.other }), { comp:0, backout:0, disb:0, proc:0, rej:0, other:0 });
+    const showOther = mixRows.some(r => r.other > 0);
+    document.getElementById('mixCaption').innerHTML = esc(monthText) + ' <span class="pivot-note">&middot; Stage mix of completed applications by Inc to Comp Bucket (Backout = PreCredit + Post Credit)</span>';
+    document.getElementById('mixHead').innerHTML = '<th>Inc to Comp Bucket</th><th>Complete</th><th>Backout %</th><th>DISB %</th><th>Process %</th><th>Rejected %</th>' + (showOther ? '<th>Other %</th>' : '');
+    const mixTr = (r, cls) => `<tr${cls ? ' class="' + cls + '"' : ''}><td>${esc(r.name)}</td><td class="num">${r.comp.toLocaleString()}</td><td class="num">${pct2(r.backout, r.comp)}</td><td class="num">${pct2(r.disb, r.comp)}</td><td class="num">${pct2(r.proc, r.comp)}</td><td class="num">${pct2(r.rej, r.comp)}</td>` + (showOther ? `<td class="num">${pct2(r.other, r.comp)}</td>` : '') + '</tr>';
+    document.getElementById('mixBody').innerHTML = mixRows.length ? mixRows.map(r => mixTr(r)).join('') + mixTr(G, 'total-row') : '<tr><td colspan="6" style="text-align:center;color:var(--text-faint);padding:20px;">No completed applications match the current filters.</td></tr>';
+  }
+
   /* ---------------- render: KPIs ---------------- */
   function renderKPIs(overall){
     const row = document.getElementById('kpiRow');
@@ -636,6 +731,7 @@
     let dim = state.activeDim;
     let map = filteredData.dimAgg[dim];
     let idxList = filteredData.dimKeyToIdxList[dim];
+    if (state.page === 2) { renderP2Summary(filteredData); renderMonthPills(); }
     if (state.page === 2 && state.p2Dim === 'group_name') {
       // Group: rows = groups; sub-tabs above the table = delay buckets
       dim = 'group_name';
