@@ -289,6 +289,10 @@
       <label>Customer Type</label>
       <select id="customerTypeSelect"></select>
     </div>
+    <div class="filter-field">
+      <label>Source</label>
+      <select id="sourceSelect"></select>
+    </div>
     <div class="filter-field" id="delayField" style="display:none;">
       <label>Inc to Comp Bucket</label>
       <select id="delaySelect"></select>
@@ -322,6 +326,7 @@
     <button class="tab-btn" data-p2dim="platform">Platform</button>
     <button class="tab-btn" data-p2dim="Approve_Type">Approval Type</button>
     <button class="tab-btn" data-p2dim="customer_type">Customer Type</button>
+    <button class="tab-btn" data-p2dim="source">Source</button>
     <button class="tab-btn" data-p2dim="month">Month Wise</button>
   </div>
   <div id="p2Summary" style="display:none;">
@@ -357,17 +362,19 @@
 <script>
 (function(){
   const RAW = window.DASHBOARD_DATA;
-  if (!RAW.delayBuckets) {
-    document.body.insertAdjacentHTML('afterbegin', '<div style="background:#FBEAE6;color:#9E2A2B;padding:12px 18px;font:600 14px sans-serif;">dashboard_data.js is from an older version (no Inc to Comp bucket data). Re-run update_dashboard_data.py and upload dashboard.html + dashboard_data.js together.</div>');
-    RAW.delayBuckets = ['(No Delay Bucket)'];
+  if (!RAW.delayBuckets || !RAW.sources) {
+    document.body.insertAdjacentHTML('afterbegin', '<div style="background:#FBEAE6;color:#9E2A2B;padding:12px 18px;font:600 14px sans-serif;">dashboard_data.js is from an older version (no Inc to Comp bucket / Source data). Re-run update_dashboard_data.py and upload dashboard.html + dashboard_data.js together.</div>');
+    RAW.delayBuckets = RAW.delayBuckets || ['(No Delay Bucket)'];
+    RAW.sources = RAW.sources || ['(Blank)'];
   }
   const { daysCreated, daysApproved, months, groups, segments, tls, platforms, approveTypes, institutes, customerTypes, stages, rows, generatedAt } = RAW;
   const delayBuckets = RAW.delayBuckets;
+  const sources = RAW.sources;
   const natCmp = (a,b) => String(a).localeCompare(String(b), undefined, {numeric:true, sensitivity:'base'});
   document.getElementById('dataAsOf').textContent = generatedAt || 'unknown';
 
-  // row = [createdDayIdx, approvedDayIdx, monthIdx, groupIdx, segmentIdx, tlIdx, platformIdx, approveTypeIdx, instituteIdx, customerTypeIdx, delayIdx, stageIdx, n, approvedN, submittedN]
-  const R = { CW:0, AW:1, MO:2, G:3, SEG:4, TL:5, PLAT:6, AT:7, INST:8, CT:9, DL:10, ST:11, N:12, APN:13, SBN:14 };
+  // row = [createdDayIdx, approvedDayIdx, monthIdx, groupIdx, segmentIdx, tlIdx, platformIdx, approveTypeIdx, instituteIdx, customerTypeIdx, delayIdx, sourceIdx, stageIdx, n, approvedN, submittedN]
+  const R = { CW:0, AW:1, MO:2, G:3, SEG:4, TL:5, PLAT:6, AT:7, INST:8, CT:9, DL:10, SRC:11, ST:12, N:13, APN:14, SBN:15 };
 
   // The 9-stage funnel. Submitted and Approved are computed directly from
   // your data (form_filled_on / Approved_Date being filled in), matching
@@ -402,8 +409,8 @@
     return baseMetric.label.toLowerCase();
   }
 
-  const DIM_LABELS = { group_name:'Group', segment:'Segment', TL_name:'TL Name', platform:'Platform', Approve_Type:'Approve Type', month:'Month', institute_name:'Institute', customer_type:'Customer Type', delaybucket:'Inc to Comp Bucket', segment_delay:'Segment', tl_delay:'TL Name' };
-  const P2DIMS = { segment:{col:'SEG', list:()=>segments}, TL_name:{col:'TL', list:()=>tls}, group_name:{col:'G', list:()=>groups}, platform:{col:'PLAT', list:()=>platforms}, Approve_Type:{col:'AT', list:()=>approveTypes}, customer_type:{col:'CT', list:()=>customerTypes}, month:{col:'MO', list:()=>months} };
+  const DIM_LABELS = { group_name:'Group', segment:'Segment', TL_name:'TL Name', platform:'Platform', Approve_Type:'Approve Type', month:'Month', institute_name:'Institute', customer_type:'Customer Type', delaybucket:'Inc to Comp Bucket', source:'Source', segment_delay:'Segment', tl_delay:'TL Name' };
+  const P2DIMS = { segment:{col:'SEG', list:()=>segments}, TL_name:{col:'TL', list:()=>tls}, group_name:{col:'G', list:()=>groups}, platform:{col:'PLAT', list:()=>platforms}, Approve_Type:{col:'AT', list:()=>approveTypes}, customer_type:{col:'CT', list:()=>customerTypes}, source:{col:'SRC', list:()=>sources}, month:{col:'MO', list:()=>months} };
   const CROSS = { segment_delay:{ a:'segment', list:()=>segments, label2:'Inc to Comp Bucket' }, tl_delay:{ a:'TL_name', list:()=>tls, label2:'Inc to Comp Bucket' } };
 
   /* ---------------- state ---------------- */
@@ -412,7 +419,7 @@
     approvedDates: new Set(), // empty = all
     groups: new Set(), // empty = all
     months: new Set(), // empty = all
-    segment: 'All', tl: 'All', approveType: 'All', platform: 'All', customerType: 'All', delay: 'All', page: 1, p2Dim: 'segment', p2Val: 'All',
+    segment: 'All', tl: 'All', approveType: 'All', platform: 'All', customerType: 'All', source: 'All', delay: 'All', page: 1, p2Dim: 'segment', p2Val: 'All', pivotSort: {col:'name', dir:'asc'}, mixSort: {col:'name', dir:'asc'},
     activeDim: 'group_name',
     tableSort: {col:'created', dir:'desc'},
     tableSearch: ''
@@ -429,6 +436,7 @@
   fillSelect(document.getElementById('approveTypeSelect'), approveTypes);
   fillSelect(document.getElementById('platformSelect'), platforms);
   fillSelect(document.getElementById('customerTypeSelect'), customerTypes);
+  fillSelect(document.getElementById('sourceSelect'), sources.slice().sort(natCmp));
   fillSelect(document.getElementById('delaySelect'), delayBuckets.slice().sort(natCmp));
 
   const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -444,6 +452,7 @@
   document.getElementById('approveTypeSelect').addEventListener('change', e => { state.approveType = e.target.value; refresh(); });
   document.getElementById('platformSelect').addEventListener('change', e => { state.platform = e.target.value; refresh(); });
   document.getElementById('customerTypeSelect').addEventListener('change', e => { state.customerType = e.target.value; refresh(); });
+  document.getElementById('sourceSelect').addEventListener('change', e => { state.source = e.target.value; refresh(); });
   document.getElementById('delaySelect').addEventListener('change', e => { state.delay = e.target.value; refresh(); });
 
   /* ---------------- generic multi-select panel (Group / Created date / Approved date / Month) ---------------- */
@@ -523,7 +532,7 @@
     const btn = e.target.closest('.tab-btn');
     if (!btn) return;
     document.querySelectorAll('#tabs2 .tab-btn').forEach(b => b.classList.toggle('active', b === btn));
-    state.p2Dim = btn.dataset.p2dim; state.p2Val = 'All'; state.activeDim = state.p2Dim === 'group_name' ? 'group_name' : 'delaybucket'; state.tableSort = state.p2Dim === 'group_name' ? {col:'created', dir:'desc'} : {col:'name', dir:'asc'};
+    state.p2Dim = btn.dataset.p2dim; state.p2Val = 'All'; state.pivotSort = {col:'name', dir:'asc'}; state.activeDim = state.p2Dim === 'group_name' ? 'group_name' : 'delaybucket'; state.tableSort = state.p2Dim === 'group_name' ? {col:'created', dir:'desc'} : {col:'name', dir:'asc'};
     renderTable(lastFiltered);
   });
   document.getElementById('monthPills').addEventListener('click', e => {
@@ -575,9 +584,9 @@
   function computeAndRender(){
     const overall = { total:0, submitted:0, approved:0, stages:{} };
 
-    const dimAgg = { group_name: new Map(), segment: new Map(), TL_name: new Map(), platform: new Map(), Approve_Type: new Map(), month: new Map(), institute_name: new Map(), customer_type: new Map(), delaybucket: new Map() };
+    const dimAgg = { group_name: new Map(), segment: new Map(), TL_name: new Map(), platform: new Map(), Approve_Type: new Map(), month: new Map(), institute_name: new Map(), customer_type: new Map(), delaybucket: new Map(), source: new Map() };
     Object.keys(P2DIMS).forEach(k => dimAgg['p2_' + k] = new Map());
-    const dimKeyToIdxList = { group_name: groups, segment: segments, TL_name: tls, platform: platforms, Approve_Type: approveTypes, month: months, institute_name: institutes, customer_type: customerTypes, delaybucket: delayBuckets };
+    const dimKeyToIdxList = { group_name: groups, segment: segments, TL_name: tls, platform: platforms, Approve_Type: approveTypes, month: months, institute_name: institutes, customer_type: customerTypes, delaybucket: delayBuckets, source: sources };
 
     for (let i = 0; i < rows.length; i++) {
       const r = rows[i];
@@ -588,6 +597,7 @@
       if (state.approveType !== 'All' && approveTypes[r[R.AT]] !== state.approveType) continue;
       if (state.platform !== 'All' && platforms[r[R.PLAT]] !== state.platform) continue;
       if (state.customerType !== 'All' && customerTypes[r[R.CT]] !== state.customerType) continue;
+      if (state.source !== 'All' && sources[r[R.SRC]] !== state.source) continue;
       if (state.delay !== 'All' && delayBuckets[r[R.DL]] !== state.delay) continue;
       if (state.months.size > 0 && !state.months.has(r[R.MO])) continue;
       if (state.groups.size > 0 && !state.groups.has(r[R.G])) continue;
@@ -607,6 +617,7 @@
       accumulate(dimAgg.institute_name, r[R.INST], stageName, n, apN, sbN);
       accumulate(dimAgg.customer_type, r[R.CT], stageName, n, apN, sbN);
       accumulate(dimAgg.delaybucket, r[R.DL], stageName, n, apN, sbN);
+      accumulate(dimAgg.source, r[R.SRC], stageName, n, apN, sbN);
       for (const k in P2DIMS) accumulate(dimAgg['p2_' + k], r[R[P2DIMS[k].col]] + '|' + r[R.DL], stageName, n, apN, sbN);
     }
 
@@ -633,6 +644,26 @@
   const monthShort = (ym) => { if (ym === '(None)') return ym; const p = ym.split('-'); return (MONTH_NAMES[parseInt(p[1],10)-1] || ym).slice(0,3) + "'" + p[0].slice(2); };
   const esc = (t) => String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;');
   const pct2 = (v, base) => (base > 0 ? (v / base * 100) : 0).toFixed(2) + '%';
+
+  function thSort(label, col, st){
+    const on = st.col === col;
+    return `<th data-col="${col}" class="${on ? 'sorted' : ''}">${label}${on ? (st.dir === 'asc' ? ' &#9650;' : ' &#9660;') : ''}</th>`;
+  }
+  function bindSort(headId, st){
+    document.querySelectorAll('#' + headId + ' th').forEach(th => {
+      th.onclick = () => {
+        const c = th.dataset.col;
+        if (st.col === c) st.dir = st.dir === 'asc' ? 'desc' : 'asc';
+        else { st.col = c; st.dir = c === 'name' ? 'asc' : 'desc'; }
+        renderP2Summary(lastFiltered);
+      };
+    });
+  }
+  const sortCmp = (st, keyFn) => (a, b) => {
+    const va = keyFn(a), vb = keyFn(b);
+    const c = (typeof va === 'string') ? natCmp(va, vb) : va - vb;
+    return st.dir === 'asc' ? c : -c;
+  };
 
   function renderMonthPills(){
     const ids = months.map((m,i) => i).filter(i => months[i] !== '(None)').sort((a,b) => natCmp(months[a], months[b]));
@@ -663,10 +694,15 @@
     });
     const rows = [...rowMap.entries()].filter(([vi]) => vals[vi] !== '(None)')
       .map(([vi, r]) => ({ raw: vals[vi], name: dim === 'month' ? monthLabel(vals[vi]) : vals[vi], total:r.total, complete:r.complete, by:r.by }));
-    rows.sort(dim === 'month' ? (a,b) => natCmp(a.raw, b.raw) : (a,b) => natCmp(a.name, b.name));
+    const ps = state.pivotSort;
+    rows.sort(sortCmp(ps, a => ps.col === 'name' ? (dim === 'month' ? a.raw : a.name)
+      : ps.col === 'total' ? a.total : ps.col === 'complete' ? a.complete
+      : ps.col === 'pct' ? (a.total ? a.complete / a.total : 0)
+      : (a.by[parseInt(ps.col.slice(2))] || 0)));
 
     document.getElementById('pivotCaption').innerHTML = esc(monthText) + ' <span class="pivot-note">&middot; ' + esc(DIM_LABELS[dim]) + '-wise &times; Inc to Comp Bucket</span>';
-    document.getElementById('pivotHead').innerHTML = `<th>${esc(DIM_LABELS[dim])}</th><th>Total</th><th>Complete</th><th>Complete %</th>` + bids.map(b => `<th>${esc(delayBuckets[b])}</th>`).join('');
+    document.getElementById('pivotHead').innerHTML = thSort(esc(DIM_LABELS[dim]), 'name', ps) + thSort('Total', 'total', ps) + thSort('Complete', 'complete', ps) + thSort('Complete %', 'pct', ps) + bids.map(b => thSort(esc(delayBuckets[b]), 'b:' + b, ps)).join('');
+    bindSort('pivotHead', ps);
     const tot = { total:0, complete:0, by:{} };
     let html = '';
     rows.forEach(r => {
@@ -687,8 +723,12 @@
     });
     const G = mixRows.reduce((a, r) => ({ name:'Grand Total', comp:a.comp + r.comp, backout:a.backout + r.backout, disb:a.disb + r.disb, proc:a.proc + r.proc, rej:a.rej + r.rej, other:a.other + r.other }), { comp:0, backout:0, disb:0, proc:0, rej:0, other:0 });
     const showOther = mixRows.some(r => r.other > 0);
+    const ms = state.mixSort;
+    if (ms.col === 'other' && !showOther) ms.col = 'name';
+    mixRows.sort(sortCmp(ms, a => ms.col === 'name' ? a.name : ms.col === 'comp' ? a.comp : (a.comp ? a[ms.col] / a.comp : 0)));
     document.getElementById('mixCaption').innerHTML = esc(monthText) + ' <span class="pivot-note">&middot; Stage mix of completed applications by Inc to Comp Bucket (Backout = PreCredit + Post Credit)</span>';
-    document.getElementById('mixHead').innerHTML = '<th>Inc to Comp Bucket</th><th>Complete</th><th>Backout %</th><th>DISB %</th><th>Process %</th><th>Rejected %</th>' + (showOther ? '<th>Other %</th>' : '');
+    document.getElementById('mixHead').innerHTML = thSort('Inc to Comp Bucket', 'name', ms) + thSort('Complete', 'comp', ms) + thSort('Backout %', 'backout', ms) + thSort('DISB %', 'disb', ms) + thSort('Process %', 'proc', ms) + thSort('Rejected %', 'rej', ms) + (showOther ? thSort('Other %', 'other', ms) : '');
+    bindSort('mixHead', ms);
     const mixTr = (r, cls) => `<tr${cls ? ' class="' + cls + '"' : ''}><td>${esc(r.name)}</td><td class="num">${r.comp.toLocaleString()}</td><td class="num">${pct2(r.backout, r.comp)}</td><td class="num">${pct2(r.disb, r.comp)}</td><td class="num">${pct2(r.proc, r.comp)}</td><td class="num">${pct2(r.rej, r.comp)}</td>` + (showOther ? `<td class="num">${pct2(r.other, r.comp)}</td>` : '') + '</tr>';
     document.getElementById('mixBody').innerHTML = mixRows.length ? mixRows.map(r => mixTr(r)).join('') + mixTr(G, 'total-row') : '<tr><td colspan="6" style="text-align:center;color:var(--text-faint);padding:20px;">No completed applications match the current filters.</td></tr>';
   }
